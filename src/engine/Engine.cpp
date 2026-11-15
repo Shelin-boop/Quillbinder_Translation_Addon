@@ -321,10 +321,15 @@ private:
 
     // ---------------------------------------------------------------- chat models (1.1: Qwen)
 
-    // The system message, the same for every text of a run: the model state after it is kept (static prompt).
+    // The system message and the examples, the same for every text of a run: the model state after them is kept
+    // (static prompt). Earlier answers carry no <think> part (as in Qwen3's own chat template).
     static QString systemPart(const tp::RunOptions &o)
     {
-        return QStringLiteral("<|im_start|>system\n%1<|im_end|>\n").arg(o.system);
+        QString p = QStringLiteral("<|im_start|>system\n%1<|im_end|>\n").arg(o.system);
+        for (int i = 0; i + 1 < o.examples.size(); i += 2)
+            p += QStringLiteral("<|im_start|>user\n%1<|im_end|>\n<|im_start|>assistant\n%2<|im_end|>\n")
+                     .arg(o.examples.at(i), o.examples.at(i + 1));
+        return p;
     }
 
     static QString userPart(const Model &s, const QString &text)

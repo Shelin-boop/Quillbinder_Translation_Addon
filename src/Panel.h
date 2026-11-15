@@ -169,6 +169,7 @@ private:
     QString stylePrefix() const;
     // 1.1: what a chat model is told: "correct", "formal", "paraphrase" or "translate"
     static QString systemFor(const QString &what);
+    static QStringList examplesFor(const QString &what);
     bool chatModel(const QString &modelId) const;
     void runNow(bool live);
     void liveTyped();

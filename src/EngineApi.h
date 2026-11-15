@@ -32,6 +32,9 @@ struct ModelFiles {
 struct RunOptions {
     QString prefix;         // put before every text (the instruction of a T5 model: "Fix grammatical errors ...")
     QString system;         // chat models: what the model is told to do (the system message)
+    // chat models: earlier turns that show the work (what the writer gave, what the model answered, ...); with the
+    // system message they are the part of the prompt the model works through once
+    QStringList examples;
     int beam = 2;
     bool banDashes = true;  // the model may not write a dash between words
     int batch = 8;          // texts worked together (faster, more memory)

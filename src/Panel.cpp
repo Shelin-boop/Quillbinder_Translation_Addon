@@ -506,6 +506,26 @@ QString Panel::systemFor(const QString &what)
         "correct, repeat the text unchanged. Answer with the text only.");
 }
 
+QStringList Panel::examplesFor(const QString &what)
+{
+    // One turn each that shows the work: a small model then corrects real errors instead of repeating the text, and
+    // leaves dialogue alone (texts of our own; the models get plain quotes)
+    if (what == QLatin1String("translate"))
+        return {QStringLiteral("\"Kommst du mit?\", fragte sie. Er schüttelte den Kopf und sah weg."),
+                QStringLiteral("\"Are you coming?\" she asked. He shook his head and looked away.")};
+    if (what == QLatin1String("formal"))
+        return {QStringLiteral("We gotta leave now, it's getting real late."),
+                QStringLiteral("We have to leave now; it is getting very late.")};
+    if (what == QLatin1String("paraphrase"))
+        return {};
+    return {QStringLiteral("Their was no answer, so she knocked again and waited for there reply."),
+            QStringLiteral("There was no answer, so she knocked again and waited for their reply."),
+            QStringLiteral("\"Ain't nobody home,\" he said. \"Gone. All of 'em.\""),
+            QStringLiteral("\"Ain't nobody home,\" he said. \"Gone. All of 'em.\""),
+            QStringLiteral("He walked passed the bakery and didnt look back."),
+            QStringLiteral("He walked past the bakery and didn't look back.")};
+}
+
 bool Panel::chatModel(const QString &modelId) const
 {
     const CatalogModel *m = m_tool->store()->model(modelId);
@@ -628,6 +648,7 @@ void Panel::runNow(bool live)
     const bool chat = chatModel(modelId);
     if (chat) {
         o.system = systemFor(proofreading() ? m_styleId : QStringLiteral("translate"));
+        o.examples = examplesFor(proofreading() ? m_styleId : QStringLiteral("translate"));
         o.batch = 4;
     } else {
         o.prefix = proofreading() ? stylePrefix() : QString();
@@ -637,7 +658,7 @@ void Panel::runNow(bool live)
     o.beam = m_tool->setting(QStringLiteral("careful"), false).toBool() ? 6 : 4;
     o.banDashes = rules.noEmDash;
     // the sentences worked on before (same model, same instruction) come from the cache
-    m_runKey = modelId + QLatin1Char('\x1f') + o.prefix + o.system + QLatin1Char('\x1f') + (o.banDashes ? u'1' : u'0')
+    m_runKey = modelId + QLatin1Char('\x1f') + o.prefix + o.system + o.examples.join(QLatin1Char('\x1e')) + QLatin1Char('\x1f') + (o.banDashes ? u'1' : u'0')
                + QString::number(o.beam);
     m_sent.clear();
     QStringList modelTexts;
@@ -1111,9 +1132,10 @@ bool Panel::outputJob(int unit, int word, AltJob *job, QString *error)
     job->source = m_units.at(unit).modelInput;
     job->current = toPlainQuotes(unitText(unit));
     job->word = word;
-    if (chatModel(modelId))
+    if (chatModel(modelId)) {
         job->options.system = systemFor(proofreading() ? m_styleId : QStringLiteral("translate"));
-    else
+        job->options.examples = examplesFor(proofreading() ? m_styleId : QStringLiteral("translate"));
+    } else
         job->options.prefix = proofreading() ? stylePrefix() : QString();
     job->options.banDashes = m_tool->rules().noEmDash;
     return true;
