@@ -1,0 +1,52 @@
+# Converts the models for the add-on's engine and puts them on the release "models-1" of this repository.
+# Runs when models/convert.py changes, or by hand (Actions > Models > Run workflow).
+name: Models
+
+on:
+  push:
+    branches: [main]
+    paths: [models/convert.py, .github/workflows/models.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: models
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Converter
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install ctranslate2==4.9.0 'transformers>=4.44,<5' sentencepiece huggingface_hub protobuf
+      - name: Convert
+        run: python models/convert.py dist-models
+      - name: Catalog for the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog
+          path: dist-models/catalog.json
+      # A published model release is never changed (the add-on checks the files against the sums it was built
+      # with): new or changed models get a new release name ("release" in models/convert.py).
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REL=$(python -c "import json; print(json.load(open('dist-models/catalog.json'))['release'])")
+          if gh release view "$REL" >/dev/null 2>&1; then
+            echo "The release $REL exists already; nothing is uploaded (give changed models a new release name)."
+            exit 0
+          fi
+          gh release create "$REL" --title "Models $REL (not the add-on)" --prerelease \
+            --notes "The models the add-on downloads when the writer chooses one (File > Options). They are not meant to be downloaded by hand. Licences: MODEL-LICENSE.txt of each model and the README of this repository."
+          gh release upload "$REL" dist-models/*
