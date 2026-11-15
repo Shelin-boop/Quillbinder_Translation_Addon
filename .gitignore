@@ -1,6 +1,7 @@
 build*/
 dist/
 dist-models/
+deps
 deps/
 *.part
 __pycache__/

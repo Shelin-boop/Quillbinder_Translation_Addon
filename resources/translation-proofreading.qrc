@@ -1,0 +1,8 @@
+<RCC>
+  <qresource prefix="/translation-proofreading">
+    <file>catalog.json</file>
+    <file>us-spelling.tsv</file>
+    <file>en-words.txt</file>
+    <file>en-thesaurus.tsv</file>
+  </qresource>
+</RCC>

@@ -1,0 +1,111 @@
+#pragma once
+// The add-on's text work that needs no model: which language a text is in, how it is cut into sentences, the
+// writer's rules (no em-dashes, American spelling, quotes, own replacements), the safety checks on what a model
+// wrote, and the word-by-word comparison that becomes the suggestions to accept or reject.
+// Qt Core only: the checks in tests/ compile it alone.
+#include <QHash>
+#include <QList>
+#include <QPair>
+#include <QSet>
+#include <QString>
+#include <QStringList>
+
+namespace tp {
+
+// "de" or "en"
+QString detectLanguage(const QString &text);
+
+// One paragraph cut into sentences (a closing quote stays with its sentence).
+QStringList splitSentences(const QString &paragraph);
+
+// The pieces a text is worked in: each paragraph keeps its place (an empty line stays an empty line), and every
+// sentence (German: a few sentences together, so that the model sees who "Ihr" is) becomes one unit.
+struct Plan {
+    QStringList units;               // the texts given to the model
+    QList<QList<int>> paragraphs;    // per paragraph the indexes of its units; empty: an empty paragraph
+    QStringList emptyParagraphs;     // the text of each paragraph without units (spaces), by paragraph index
+};
+Plan makePlan(const QString &text, bool groupForContext, int maxWords = 60);
+// Joins the units again: units of a paragraph with one space, paragraphs with a line break.
+QString joinPlan(const Plan &plan, const QStringList &unitTexts);
+
+QString toPlainQuotes(const QString &text);    // „“”«» to ", ‚‘’ to '
+QString toCurlyQuotes(const QString &text);    // American typography: “ ” and ’
+
+struct Rules {
+    bool noEmDash = true;        // no dash between words: the models may not write one, dashes become commas
+    bool american = true;        // British spellings become American ones
+    bool curlyQuotes = true;     // “ ” ‘ ’ instead of " '
+    bool plainEllipsis = true;   // "..." instead of the single character …
+    QList<QPair<QString, QString>> replacements;  // the writer's own: whole words, case kept
+};
+// The writer's own replacements from the options text: one per line, "old => new"; lines starting with # are notes.
+QList<QPair<QString, QString>> parseReplacements(const QString &text, QStringList *errors = nullptr);
+
+// Before the model: dashes between words become ", " (counted into *dashes).
+QString beforeModel(const QString &text, const Rules &rules, int *dashes = nullptr);
+// After the model: spelling, own replacements, ellipsis, quotes. Each change made goes into *notes once
+// ("American spelling: grey -> gray").
+QString afterModel(const QString &text, const Rules &rules, QStringList *notes = nullptr);
+
+// The American spelling list (British\tAmerican per line), loaded once; tests may load another.
+void loadSpellingList(const QString &file);
+const QHash<QString, QString> &spellingList();
+
+// Safety checks for a corrected sentence (both texts with plain quotes).
+double similarity(const QString &a, const QString &b);           // 0..1, by characters (as difflib's ratio)
+bool changedTooMuch(const QString &original, const QString &corrected, double minSimilarity = 0.75);
+QSet<QString> doubledWords(const QString &text);                 // "the the" -> {"the"}
+bool newDoubledWord(const QString &original, const QString &corrected);
+
+// Word by word: the text is cut at spaces (punctuation stays with its word), and the two lists are compared.
+QStringList words(const QString &text);
+struct Segment {
+    bool changed = false;
+    QStringList before;   // the original's words (empty: words added)
+    QStringList after;    // the corrected words (empty: words left out)
+    bool accepted = true; // for a change: the writer takes it (false: the original stays)
+};
+QList<Segment> compareWords(const QString &original, const QString &corrected);
+QString segmentsText(const QList<Segment> &segments);   // the text as the writer has decided
+
+// ---- 1.1
+
+// Dialogue kept as written: the quotation marks of the original come back to the words they stood at (a model
+// moved, doubled, turned or dropped them, 2026-11-15), quotation marks the model added go, and a punctuation mark the
+// model set apart ("even , talk") goes to the word before it. Where the original has a closing quotation mark, its
+// punctuation there stays as written too. Both texts as words separated by spaces (quotes plain or curly).
+QString keepDialogue(const QString &original, const QString &corrected);
+// No space before , . ; : ! ? and after an opening parenthesis (a model's translation).
+QString tidyPunctuation(const QString &text);
+
+// The words of the American dictionary (resources/en-words.txt); tests may load another list.
+void loadWordList(const QString &file);
+const QSet<QString> &wordList();
+bool knownWord(const QString &word);              // in the list (as written, in lower case, or with ' for ’)
+// Words of the list a misspelled word may have meant: at most two letters away (one more, one less, one other,
+// two swapped), the nearest first; words the thesaurus knows (common ones) before rare ones. Case as written.
+QStringList spellingSuggestions(const QString &word, int max = 8);
+
+// Words of a similar meaning (resources/en-thesaurus.tsv, from WordNet 3.0), for the word's base form ("walked":
+// "walk"); by part of speech, the most frequent sense first, in American spelling.
+struct Similar {
+    QString pos;          // "noun", "verb", "adjective", "adverb"
+    QStringList words;
+};
+void loadThesaurus(const QString &file);
+QStringList baseForms(const QString &word);       // the forms the thesaurus has: "went" -> "go", "cities" -> "city"
+QList<Similar> similarWords(const QString &word, QString *base = nullptr);
+
+// A text that is a single word (letters, an apostrophe or a hyphen inside; quotes and punctuation around it).
+bool isSingleWord(const QString &text, QString *word = nullptr);
+
+// The model's other words for a word, as the single word and the information area show them: without quotes and
+// punctuation around them, without repeats (also in another case) and without the word itself. With otherForms false
+// also without the word's other forms ("windows" for "window": the same word, not another one). With near, only words
+// at most two letters from the word or in near (its spelling suggestions and similar words): for a word alone, the
+// model's other words are mostly ones a sentence starts with ("It", "The").
+QStringList usefulModelWords(const QStringList &found, const QString &word, bool otherForms = true,
+                             const QStringList *near = nullptr);
+
+} // namespace tp

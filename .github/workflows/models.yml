@@ -1,5 +1,6 @@
-# Converts the models for the add-on's engine and puts them on the release "models-1" of this repository.
-# Runs when models/convert.py changes, or by hand (Actions > Models > Run workflow).
+# Converts the models for the add-on's engine and puts them on the release named in models/convert.py (RELEASE) of
+# this repository. Runs when models/convert.py changes on main, or by hand (Actions > Models > Run workflow, also on a
+# work branch). The catalog (artifact "catalog") goes into resources/catalog.json.
 name: Models
 
 on:
@@ -18,9 +19,15 @@ concurrency:
 jobs:
   convert:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
+      # 1.1: the 4B model is about 8 GB before and 4 GB after the conversion; the runner keeps 14 GB free at first
+      - name: Disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h /
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,7 +35,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install ctranslate2==4.9.0 'transformers>=4.44,<5' sentencepiece huggingface_hub protobuf
+          python -m pip install ctranslate2==4.9.0 'transformers>=4.51,<5' sentencepiece huggingface_hub protobuf
       - name: Convert
         run: python models/convert.py dist-models
       - name: Catalog for the build
@@ -48,5 +55,5 @@ jobs:
             exit 0
           fi
           gh release create "$REL" --title "Models $REL (not the add-on)" --prerelease \
-            --notes "The models the add-on downloads when the writer chooses one (File > Options). They are not meant to be downloaded by hand. Licences: MODEL-LICENSE.txt of each model and the README of this repository."
+            --notes "The models the add-on downloads when the writer chooses one (File > Options). They are not meant to be downloaded by hand. Licenses: MODEL-LICENSE.txt of each model and the README of this repository."
           gh release upload "$REL" dist-models/*
