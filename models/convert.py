@@ -249,7 +249,8 @@ def main():
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     with open(os.path.join(here, "resources", "catalog.json"), encoding="utf-8") as f:
         old = json.load(f)
-    catalog = {"format": 2, "engine": f"CTranslate2 {CT2_VERSION}", "models": []}
+    # "release": the release of this run (the workflow uploads to it); each model names its own release
+    catalog = {"format": 2, "release": RELEASE, "engine": f"CTranslate2 {CT2_VERSION}", "models": []}
     for e in old["models"]:
         if e.get("release", old.get("release", "models-1")) == RELEASE:
             continue   # converted again below
