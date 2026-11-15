@@ -32,7 +32,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q ninja-build libgl-dev libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 \
-            fonts-dejavu-core hunspell-en-us hunspell-en-gb hunspell-tools
+            fonts-dejavu-core hunspell-en-us hunspell-en-gb hunspell-tools wordnet-base
 
       - name: Qt ${{ env.QT_VERSION }} (The Qt Company's build, as in Quillbinder's AppImage)
         run: |
@@ -79,6 +79,15 @@ jobs:
             git checkout -- resources/us-spelling.tsv resources/en-words.txt
           fi
 
+      - name: The similar words are made from WordNet
+        run: |
+          python3 tools/make-thesaurus.py
+          if ! git diff --quiet -- resources/en-thesaurus.tsv; then
+            echo "::warning::WordNet of this runner gives another list of similar words than the one in the source; the source's list is used."
+            git diff --stat -- resources/
+            git checkout -- resources/en-thesaurus.tsv
+          fi
+
       - name: Models for the checks (cache)
         id: models
         uses: actions/cache/restore@v4
@@ -90,9 +99,13 @@ jobs:
         if: steps.models.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+        # 1.1: the models of 1.0 (models-1) and of models-2 the ones the checks use: Qwen3 1.7B, the larger
+        # translator, and the 4B model's tokenizer (its model file is 4 GB and is not run in the checks)
         run: |
-          REL=$(python3 -c "import json; print(json.load(open('resources/catalog.json'))['release'])")
-          gh release download "$REL" -R "${{ github.repository }}" -D models-cache
+          gh release download models-1 -R "${{ github.repository }}" -D models-cache
+          gh release download models-2 -R "${{ github.repository }}" -D models-cache --clobber \
+            -p 'catalog.json' -p 'qwen3-1.7b--*' -p 'opus-mt-big-de-en--*' -p 'qwen3-4b--tokenizer*' -p 'qwen3-4b--vocabulary.json'
+          ls -la models-cache
 
       - name: Models for the checks (keep)
         if: steps.models.outputs.cache-hit != 'true'

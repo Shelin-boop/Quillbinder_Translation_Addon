@@ -45,7 +45,7 @@ private:
 
     TranslateTool *m_tool;
     QPointer<QWidget> m_w;
-    QHash<QString, Row> m_rows;
+    QMultiHash<QString, Row> m_rows;   // by model id (1.1: a chat model has a row in both groups)
     QHash<QString, QButtonGroup *> m_groups;
     QCheckBox *m_noDash = nullptr, *m_american = nullptr, *m_curly = nullptr, *m_ellipsis = nullptr, *m_careful = nullptr;
     QPlainTextEdit *m_replacements = nullptr;

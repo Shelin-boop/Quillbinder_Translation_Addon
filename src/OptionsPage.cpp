@@ -32,8 +32,23 @@ OptionsPage::OptionsPage(TranslateTool *tool, QWidget *parent)
                              m_w);
     intro->setWordWrap(true);
     l->addWidget(intro);
+    const Machine machine = Machine::now();
+    auto *computer = new QLabel(machine.totalMB > 0
+                                    ? tr("This computer has %1 GB of memory, %2 GB free now. A model that needs more "
+                                         "than it can give is not offered for download, and is not loaded when too "
+                                         "little memory is free.")
+                                          .arg(machine.totalMB / 1024.0, 0, 'f', 1)
+                                          .arg(machine.availableMB / 1024.0, 0, 'f', 1)
+                                    : QString(),
+                                m_w);
+    computer->setObjectName(QStringLiteral("tpMachine"));
+    computer->setWordWrap(true);
+    computer->setVisible(machine.totalMB > 0);
+    l->addWidget(computer);
     l->addWidget(modelGroup(QStringLiteral("corrector"), tr("Proofreading (English)"),
-                            tr("Large finds far more errors; Base is smaller and free for any use.")));
+                            tr("Try them: CoEdIT Large finds many errors but rewrites more; the Qwen models are told to "
+                               "fix only real errors and to leave your style and dialogue alone (4B is better, 1.7B "
+                               "faster). A Qwen model downloaded once also translates.")));
     l->addWidget(modelGroup(QStringLiteral("translator"), tr("Translation (German to English)"), QString()));
 
     auto *rules = new QGroupBox(tr("Rules for the result"), m_w);
@@ -71,6 +86,8 @@ OptionsPage::OptionsPage(TranslateTool *tool, QWidget *parent)
     auto *sf = new QFormLayout(speed);
     m_threads = new QSpinBox(speed);
     m_threads->setRange(1, qMax(1, QThread::idealThreadCount()));
+    m_threads->setToolTip(tr("One core is left free by default, so that the computer stays responsive; the work runs "
+                             "at a low priority."));
     sf->addRow(tr("Processor threads:"), m_threads);
     m_careful = new QCheckBox(tr("Careful: the model weighs even more possibilities (slower, now and then better)"), speed);
     sf->addRow(m_careful);
@@ -80,8 +97,9 @@ OptionsPage::OptionsPage(TranslateTool *tool, QWidget *parent)
     for (const CatalogModel &m : m_tool->store()->models())
         credits << QStringLiteral("<li>%1</li>").arg(m.credit.toHtmlEscaped());
     auto *about = new QLabel(tr("<b>Models</b><ul>%1</ul>The engine: CTranslate2 (MIT), oneDNN (Apache-2.0), "
-                                "SentencePiece (Apache-2.0); the American spellings from SCOWL by Kevin Atkinson. Details "
-                                "in the add-on's licenses folder. Add-on %2.")
+                                "SentencePiece (Apache-2.0); the American spellings from SCOWL by Kevin Atkinson; the "
+                                "words of a similar meaning from Princeton WordNet 3.0. Details in the add-on's licenses "
+                                "folder. Add-on %2.")
                                  .arg(credits.join(QString()), m_tool->version()),
                              m_w);
     about->setWordWrap(true);
@@ -100,18 +118,18 @@ OptionsPage::OptionsPage(TranslateTool *tool, QWidget *parent)
     m_careful->setChecked(m_tool->setting(QStringLiteral("careful"), false).toBool());
 
     connect(m_tool->store(), &ModelStore::progress, this, [this](const QString &id, qint64 done, qint64 total) {
-        const Row r = m_rows.value(id);
-        if (!r.bar)
-            return;
-        r.bar->setVisible(true);
-        r.bar->setRange(0, 1000);
-        r.bar->setValue(total > 0 ? int(1000 * done / total) : 0);
-        r.state->setText(tr("Downloading: %1 of %2 MB").arg(done / 1000000).arg(total / 1000000));
+        for (const Row &r : m_rows.values(id)) {
+            r.bar->setVisible(true);
+            r.bar->setRange(0, 1000);
+            r.bar->setValue(total > 0 ? int(1000 * done / total) : 0);
+            r.state->setText(tr("Downloading: %1 of %2 MB").arg(done / 1000000).arg(total / 1000000));
+        }
     });
     connect(m_tool->store(), &ModelStore::finished, this, [this](const QString &id, bool ok, const QString &message) {
         refresh();
-        if (Row r = m_rows.value(id); r.state && !ok)
-            r.state->setText(message);
+        if (!ok)
+            for (const Row &r : m_rows.values(id))
+                r.state->setText(message);
     });
     refresh();
 }
@@ -161,13 +179,17 @@ QWidget *OptionsPage::modelGroup(const QString &kind, const QString &title, cons
         r.folder = new QPushButton(tr("From Folder..."), box);
         r.folder->setToolTip(tr("Use the model's files from a folder (for a computer without internet): the files of "
                                 "the release \"%1\" of the add-on's repository.")
-                                 .arg(m_tool->store()->release()));
+                                 .arg(m.release));
         const QString id = m.id;
-        connect(r.download, &QPushButton::clicked, this, [this, id] {
-            if (m_tool->store()->busyWith() == id)
+        QRadioButton *choose = r.choose;
+        connect(r.download, &QPushButton::clicked, this, [this, id, choose] {
+            if (m_tool->store()->busyWith() == id) {
                 m_tool->store()->cancel();
-            else
+            } else {
                 startDownload(id);
+                if (m_tool->store()->busyWith() == id)
+                    choose->setChecked(true);   // chosen in the group where the writer clicked
+            }
         });
         connect(r.remove, &QPushButton::clicked, this, [this, id] {
             QString error;
@@ -197,12 +219,17 @@ void OptionsPage::refresh()
         const Row &r = it.value();
         const bool installed = store->isInstalled(it.key());
         const bool loading = store->busyWith() == it.key();
-        r.state->setText(loading ? tr("Downloading ...") : installed ? tr("Downloaded and checked.") : tr("Not downloaded."));
+        // 1.1: a model too large for this computer (or for the free disk space) is not offered
+        const QString problem = installed || loading ? QString() : store->downloadProblem(it.key());
+        r.state->setText(loading ? tr("Downloading ...")
+                         : installed ? tr("Downloaded and checked.")
+                         : !problem.isEmpty() ? problem
+                                              : tr("Not downloaded."));
         r.bar->setVisible(loading);
         r.download->setText(loading ? tr("Stop") : tr("Download"));
-        r.download->setEnabled(!installed && (loading || !store->busy()));
+        r.download->setEnabled(!installed && problem.isEmpty() && (loading || !store->busy()));
         r.remove->setEnabled(installed && !loading);
-        r.folder->setEnabled(!installed && !store->busy());
+        r.folder->setEnabled(!installed && problem.isEmpty() && !store->busy());
     }
     // a kind without a choice yet: the first installed model
     for (auto it = m_groups.begin(); it != m_groups.end(); ++it) {
@@ -243,8 +270,10 @@ void OptionsPage::startDownload(const QString &id)
     }
     m_tool->store()->download(id);
     refresh();
-    if (Row r = m_rows.value(id); r.choose)
-        r.choose->setChecked(true);
+    // a group without a choice yet takes it (a chat model is in both)
+    for (const Row &r : m_rows.values(id))
+        if (r.choose && r.choose->group() && !r.choose->group()->checkedButton())
+            r.choose->setChecked(true);
 }
 
 void OptionsPage::fromFolder(const QString &id)

@@ -12,6 +12,9 @@
 #include <QWidget>
 
 #include <dlfcn.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 using namespace qb::tools;
 
@@ -262,7 +265,33 @@ Rules TranslateTool::rules() const
 int TranslateTool::threads() const
 {
     const int ideal = qMax(1, QThread::idealThreadCount());
-    return qBound(1, setting(QStringLiteral("threads"), ideal).toInt(), ideal);
+    return qBound(1, setting(QStringLiteral("threads"), qMax(1, ideal - 1)).toInt(), ideal);
+}
+
+QString TranslateTool::loadProblem(const QString &slot, const QString &modelId)
+{
+    const CatalogModel *m = m_store.model(modelId);
+    if (!m)
+        return QString();
+    const QString corrector = QStringLiteral("corrector"), translator = QStringLiteral("translator");
+    if (m_engine && (m_engine->loaded(corrector) == modelId || m_engine->loaded(translator) == modelId))
+        return QString();   // loaded already (or shared with the other slot)
+    // the model in this slot is freed first, unless the other slot keeps it
+    qint64 freed = 0;
+    if (m_engine) {
+        const QString current = m_engine->loaded(slot);
+        const QString other = m_engine->loaded(slot == corrector ? translator : corrector);
+        if (!current.isEmpty() && current != other)
+            if (const CatalogModel *c = m_store.model(current))
+                freed = c->memoryMB;
+    }
+    return memoryProblem(*m, Machine::now(), true, freed);
+}
+
+void TranslateTool::lowerPriority()
+{
+    // Linux: a thread is a task of its own; the threads it starts (the engine's and OpenMP's) take its priority
+    setpriority(PRIO_PROCESS, id_t(syscall(SYS_gettid)), 10);
 }
 
 QString TranslateTool::chosenModel(const QString &kind) const

@@ -5,6 +5,8 @@
 #include <QTextStream>
 
 #include <algorithm>
+#include <cstdlib>
+#include <tuple>
 #include <vector>
 
 namespace tp {
@@ -437,6 +439,486 @@ QString segmentsText(const QList<Segment> &segments)
     for (const Segment &s : segments)
         w << (s.changed && !s.accepted ? s.before : s.after);
     return w.join(QLatin1Char(' '));
+}
+
+// ---------------------------------------------------------------- 1.1: dialogue kept as written
+
+namespace {
+
+bool isQuoteChar(QChar c)
+{
+    switch (c.unicode()) {
+    case '"': case '\'': case 0x201c: case 0x201d: case 0x201e: case 0x00ab: case 0x00bb:
+    case 0x2018: case 0x2019: case 0x201a: case 0x2039: case 0x203a:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool isTrailPunct(QChar c)
+{
+    return c == QLatin1Char('.') || c == QLatin1Char(',') || c == QLatin1Char(';') || c == QLatin1Char(':')
+           || c == QLatin1Char('!') || c == QLatin1Char('?') || c == QChar(0x2026) || c == QLatin1Char(')');
+}
+
+// a word in three parts: quotation marks before it, the word, quotation marks and punctuation after it
+struct Parts {
+    QString lead, core, trail;
+    bool leadQuote() const { return !lead.isEmpty(); }
+    bool trailQuote() const
+    {
+        for (QChar c : trail)
+            if (isQuoteChar(c))
+                return true;
+        return false;
+    }
+};
+
+Parts parts(const QString &w)
+{
+    Parts p;
+    int a = 0, b = int(w.size());
+    while (a < b && isQuoteChar(w.at(a)))
+        ++a;
+    // an apostrophe that ends a word of the list ("sleepin'") would be a quotation mark here; the original keeps it
+    while (b > a && (isQuoteChar(w.at(b - 1)) || isTrailPunct(w.at(b - 1))))
+        --b;
+    p.lead = w.left(a);
+    p.core = w.mid(a, b - a);
+    p.trail = w.mid(b);
+    return p;
+}
+
+QString withoutQuotes(const QString &s)
+{
+    QString out;
+    for (QChar c : s)
+        if (!isQuoteChar(c))
+            out += c;
+    return out;
+}
+
+bool onlyQuotes(const QString &w)
+{
+    for (QChar c : w)
+        if (!isQuoteChar(c))
+            return false;
+    return true;
+}
+
+bool onlyPunct(const QString &w)
+{
+    for (QChar c : w)
+        if (!isTrailPunct(c) && !isQuoteChar(c))
+            return false;
+    return true;
+}
+
+QString key(const QString &core)
+{
+    QString k;
+    for (QChar c : core.toLower())
+        if (c.isLetterOrNumber())
+            k += c;
+    return k.isEmpty() ? core : k;
+}
+
+} // namespace
+
+QString tidyPunctuation(const QString &text)
+{
+    static const QRegularExpression before(QStringLiteral("\\s+([,.;:!?\u2026)])"));
+    static const QRegularExpression after(QStringLiteral("\\(\\s+"));
+    QString s = text;
+    s.replace(before, QStringLiteral("\\1"));
+    s.replace(after, QStringLiteral("("));
+    return s;
+}
+
+QString keepDialogue(const QString &original, const QString &corrected)
+{
+    const QStringList ow = words(original);
+    // the model's words: lone quotation marks go, lone punctuation joins the word before
+    QStringList cw;
+    for (const QString &w : words(corrected)) {
+        if (onlyQuotes(w))
+            continue;
+        if (onlyPunct(w) && !cw.isEmpty()) {
+            cw.last() += withoutQuotes(w);
+            continue;
+        }
+        cw << w;
+    }
+    QList<Parts> op, cp;
+    for (const QString &w : ow)
+        op << parts(w);
+    for (const QString &w : cw)
+        cp << parts(w);
+    const int n = int(op.size()), m = int(cp.size());
+    std::vector<std::vector<int>> L(size_t(n) + 1, std::vector<int>(size_t(m) + 1, 0));
+    for (int i = n - 1; i >= 0; --i)
+        for (int j = m - 1; j >= 0; --j)
+            L[size_t(i)][size_t(j)] = key(op.at(i).core) == key(cp.at(j).core) ? L[size_t(i) + 1][size_t(j) + 1] + 1
+                                      : std::max(L[size_t(i) + 1][size_t(j)], L[size_t(i)][size_t(j) + 1]);
+    QStringList out;
+    QString pendingLead;   // quotation marks of left-out words, for the next word
+    auto rebuilt = [](const Parts &o, const Parts &c) {
+        // the quotation marks where the writer had them; at a closing one the writer's punctuation too; the word as
+        // written when only its apostrophe differs ("I'm" for "I’m")
+        const QString core = toPlainQuotes(o.core) == toPlainQuotes(c.core) ? o.core : c.core;
+        return o.lead + core + (o.trailQuote() ? o.trail : withoutQuotes(c.trail));
+    };
+    auto flushRegion = [&](int oi0, int oi1, int cj0, int cj1) {
+        // a stretch the model changed: its words, with the quotation marks of the original's first and last word
+        QString lead, trail;
+        for (int i = oi0; i < oi1; ++i) {
+            if (i == oi0)
+                lead = op.at(i).lead;
+            if (op.at(i).trailQuote())
+                trail = op.at(i).trail;
+        }
+        if (cj1 == cj0) {   // words left out: their quotation marks go to the neighbors
+            pendingLead += lead;
+            if (!trail.isEmpty() && !out.isEmpty()) {
+                const Parts last = parts(out.last());
+                out.last() = last.lead + last.core + trail;
+            }
+            return;
+        }
+        for (int j = cj0; j < cj1; ++j) {
+            const Parts &c = cp.at(j);
+            QString w = withoutQuotes(c.lead) + c.core;
+            const bool last = j == cj1 - 1;
+            w += last && !trail.isEmpty() ? trail : withoutQuotes(c.trail);
+            if (j == cj0)
+                w = pendingLead + lead + w;
+            out << w;
+            pendingLead.clear();
+        }
+    };
+    int i = 0, j = 0, ri = 0, rj = 0;
+    while (i < n || j < m) {
+        if (i < n && j < m && key(op.at(i).core) == key(cp.at(j).core)) {
+            if (ri < i || rj < j)
+                flushRegion(ri, i, rj, j);
+            out << pendingLead + rebuilt(op.at(i), cp.at(j));
+            pendingLead.clear();
+            ++i;
+            ++j;
+            ri = i;
+            rj = j;
+        } else if (j < m && (i == n || L[size_t(i)][size_t(j) + 1] >= L[size_t(i) + 1][size_t(j)])) {
+            ++j;
+        } else {
+            ++i;
+        }
+    }
+    if (ri < n || rj < m)
+        flushRegion(ri, n, rj, m);
+    if (!pendingLead.isEmpty() && !out.isEmpty())
+        out.last() += pendingLead;
+    return out.join(QLatin1Char(' '));
+}
+
+// ---------------------------------------------------------------- 1.1: spelling suggestions, similar words
+
+namespace {
+
+QSet<QString> g_words;
+bool g_wordsLoaded = false;
+
+struct Thesaurus {
+    QHash<QString, QString> entries;      // word -> "n:a;b|v:c"
+    QHash<QString, QStringList> irregular; // "went" -> {"go"}
+    bool loaded = false;
+};
+Thesaurus g_thesaurus;
+
+const Thesaurus &thesaurus()
+{
+    if (!g_thesaurus.loaded)
+        loadThesaurus(QStringLiteral(":/translation-proofreading/en-thesaurus.tsv"));
+    return g_thesaurus;
+}
+
+// Damerau-Levenshtein distance (with swapped neighbors), stopped above `limit`
+int distance(const QString &a, const QString &b, int limit)
+{
+    const int n = int(a.size()), m = int(b.size());
+    if (std::abs(n - m) > limit)
+        return limit + 1;
+    std::vector<std::vector<int>> d(size_t(n) + 1, std::vector<int>(size_t(m) + 1, 0));
+    for (int i = 0; i <= n; ++i)
+        d[size_t(i)][0] = i;
+    for (int j = 0; j <= m; ++j)
+        d[0][size_t(j)] = j;
+    for (int i = 1; i <= n; ++i) {
+        int rowMin = limit + 1;
+        for (int j = 1; j <= m; ++j) {
+            const int cost = a.at(i - 1) == b.at(j - 1) ? 0 : 1;
+            int v = std::min({d[size_t(i) - 1][size_t(j)] + 1, d[size_t(i)][size_t(j) - 1] + 1,
+                              d[size_t(i) - 1][size_t(j) - 1] + cost});
+            if (i > 1 && j > 1 && a.at(i - 1) == b.at(j - 2) && a.at(i - 2) == b.at(j - 1))
+                v = std::min(v, d[size_t(i) - 2][size_t(j) - 2] + 1);
+            d[size_t(i)][size_t(j)] = v;
+            rowMin = std::min(rowMin, v);
+        }
+        if (rowMin > limit)
+            return limit + 1;
+    }
+    return d[size_t(n)][size_t(m)];
+}
+
+QString posName(const QString &tag)
+{
+    if (tag == QLatin1String("n"))
+        return QStringLiteral("noun");
+    if (tag == QLatin1String("v"))
+        return QStringLiteral("verb");
+    if (tag == QLatin1String("a"))
+        return QStringLiteral("adjective");
+    return QStringLiteral("adverb");
+}
+
+} // namespace
+
+void loadWordList(const QString &file)
+{
+    g_words.clear();
+    QFile f(file);
+    if (f.open(QIODevice::ReadOnly))
+        for (const QByteArray &line : f.readAll().split('\n'))
+            if (!line.isEmpty())
+                g_words.insert(QString::fromUtf8(line));
+    g_wordsLoaded = true;
+}
+
+const QSet<QString> &wordList()
+{
+    if (!g_wordsLoaded)
+        loadWordList(QStringLiteral(":/translation-proofreading/en-words.txt"));
+    return g_words;
+}
+
+namespace {
+
+// the word list has no apostrophes: the common contractions, as candidates of the spelling suggestions too
+const QStringList &contractions()
+{
+    static const QStringList c = QStringLiteral(
+        "don't doesn't didn't isn't aren't wasn't weren't can't couldn't won't wouldn't shouldn't haven't hasn't "
+        "hadn't mustn't needn't I'm I've I'll I'd you're you've you'll you'd we're we've we'll we'd they're they've "
+        "they'll they'd it's it'll that's there's here's what's who's where's let's he's she's he'll she'll he'd "
+        "she'd o'clock ma'am y'all ain't")
+                                     .split(QLatin1Char(' '));
+    return c;
+}
+
+bool inList(const QString &w)
+{
+    const QSet<QString> &list = wordList();
+    return list.contains(w) || list.contains(w.toLower())
+           || (w.size() > 1 && list.contains(w.at(0).toUpper() + w.mid(1).toLower()));
+}
+
+} // namespace
+
+bool knownWord(const QString &word)
+{
+    QString w = word;
+    w.replace(QChar(0x2019), QLatin1Char('\''));
+    if (inList(w))
+        return true;
+    if (!w.contains(QLatin1Char('\'')))
+        return false;
+    for (const QString &c : contractions())
+        if (c.compare(w, Qt::CaseInsensitive) == 0)
+            return true;
+    // "the river's", "Mara'll": the word before the ending
+    for (const char *end : {"n't", "'s", "'re", "'ve", "'ll", "'d", "'m", "'"})
+        if (w.endsWith(QLatin1String(end), Qt::CaseInsensitive) && w.size() > int(qstrlen(end)))
+            return inList(w.left(w.size() - int(qstrlen(end))));
+    return false;
+}
+
+QStringList spellingSuggestions(const QString &word, int max)
+{
+    QString w = word;
+    w.replace(QChar(0x2019), QLatin1Char('\''));
+    const QString lower = w.toLower();
+    const bool capital = !w.isEmpty() && w.at(0).isUpper();
+    struct Cand {
+        QString word;
+        int dist, common, firstSame, lenDiff;
+    };
+    std::vector<Cand> found;
+    const Thesaurus &th = thesaurus();
+    QStringList pool = contractions();
+    for (const QString &c : std::as_const(pool)) {
+        const QString cl = c.toLower();
+        // only the apostrophe missing ("dont"): the nearest of all
+        const int d = QString(cl).remove(QLatin1Char('\'')) == lower ? 0 : distance(lower, cl, 2);
+        if (d <= 2 && cl != lower)
+            found.push_back({c, d, 0, cl.at(0) == lower.at(0) ? 0 : 1, std::abs(int(c.size()) - int(lower.size()))});
+    }
+    for (const QString &c : wordList()) {
+        if (std::abs(int(c.size()) - int(lower.size())) > 2)
+            continue;
+        const QString cl = c.toLower();
+        if (cl == lower)
+            continue;
+        const int d = distance(lower, cl, 2);
+        if (d > 2)
+            continue;
+        // a proper name (capital in the list) only for a word written with a capital
+        if (c.at(0).isUpper() && !capital)
+            continue;
+        found.push_back({c, d, th.entries.contains(cl) ? 0 : 1, cl.at(0) == lower.at(0) ? 0 : 1,
+                         std::abs(int(c.size()) - int(lower.size()))});
+    }
+    std::sort(found.begin(), found.end(), [](const Cand &a, const Cand &b) {
+        return std::tie(a.dist, a.common, a.firstSame, a.lenDiff, a.word)
+               < std::tie(b.dist, b.common, b.firstSame, b.lenDiff, b.word);
+    });
+    QStringList out;
+    for (const Cand &c : found) {
+        QString s = c.word;
+        if (capital && s.at(0).isLower())
+            s = s.at(0).toUpper() + s.mid(1);
+        if (word.contains(QChar(0x2019)))
+            s.replace(QLatin1Char('\''), QChar(0x2019));
+        if (!out.contains(s))
+            out << s;
+        if (out.size() >= max)
+            break;
+    }
+    return out;
+}
+
+void loadThesaurus(const QString &file)
+{
+    g_thesaurus = Thesaurus();
+    QFile f(file);
+    if (f.open(QIODevice::ReadOnly)) {
+        for (const QByteArray &line : f.readAll().split('\n')) {
+            if (line.isEmpty() || line.startsWith('#'))
+                continue;
+            const int tab = line.indexOf('\t');
+            if (tab <= 0)
+                continue;
+            const QString k = QString::fromUtf8(line.left(tab));
+            const QString v = QString::fromUtf8(line.mid(tab + 1));
+            if (k.startsWith(QLatin1Char('@')))
+                g_thesaurus.irregular.insert(k.mid(1), v.split(QLatin1Char(' '), Qt::SkipEmptyParts));
+            else
+                g_thesaurus.entries.insert(k, v);
+        }
+    }
+    g_thesaurus.loaded = true;
+}
+
+QStringList baseForms(const QString &word)
+{
+    const Thesaurus &th = thesaurus();
+    QString w = word.toLower();
+    w.replace(QChar(0x2019), QLatin1Char('\''));
+    QStringList out;
+    auto add = [&](const QString &b) {
+        if (th.entries.contains(b) && !out.contains(b))
+            out << b;
+    };
+    add(w);
+    for (const QString &b : th.irregular.value(w))
+        add(b);
+    // WordNet's rules for the regular forms (its "morphy"), and a doubled letter before -ed and -ing ("stopped")
+    static const QList<QPair<QString, QString>> rules = {
+        {QStringLiteral("s"), QString()},          {QStringLiteral("ses"), QStringLiteral("s")},
+        {QStringLiteral("xes"), QStringLiteral("x")}, {QStringLiteral("zes"), QStringLiteral("z")},
+        {QStringLiteral("ches"), QStringLiteral("ch")}, {QStringLiteral("shes"), QStringLiteral("sh")},
+        {QStringLiteral("men"), QStringLiteral("man")}, {QStringLiteral("ies"), QStringLiteral("y")},
+        {QStringLiteral("es"), QStringLiteral("e")}, {QStringLiteral("es"), QString()},
+        {QStringLiteral("ed"), QStringLiteral("e")}, {QStringLiteral("ed"), QString()},
+        {QStringLiteral("ing"), QStringLiteral("e")}, {QStringLiteral("ing"), QString()},
+        {QStringLiteral("er"), QString()},         {QStringLiteral("est"), QString()},
+        {QStringLiteral("er"), QStringLiteral("e")}, {QStringLiteral("est"), QStringLiteral("e")},
+        {QStringLiteral("ied"), QStringLiteral("y")}, {QStringLiteral("ier"), QStringLiteral("y")},
+        {QStringLiteral("iest"), QStringLiteral("y")}, {QStringLiteral("ly"), QString()},
+    };
+    for (const auto &r : rules) {
+        if (w.size() > r.first.size() + 1 && w.endsWith(r.first)) {
+            const QString stem = w.left(w.size() - r.first.size());
+            add(stem + r.second);
+            if ((r.first == QLatin1String("ed") || r.first == QLatin1String("ing")) && r.second.isEmpty()
+                && stem.size() > 2 && stem.at(stem.size() - 1) == stem.at(stem.size() - 2))
+                add(stem.left(stem.size() - 1));
+        }
+    }
+    return out;
+}
+
+QList<Similar> similarWords(const QString &word, QString *base)
+{
+    QList<Similar> out;
+    const QStringList bases = baseForms(word);
+    if (base)
+        *base = bases.value(0);
+    const QHash<QString, QString> &us = spellingList();
+    QSet<QString> seen;
+    for (const QString &b : bases) {
+        for (const QString &group : thesaurus().entries.value(b).split(QLatin1Char('|'), Qt::SkipEmptyParts)) {
+            const int colon = group.indexOf(QLatin1Char(':'));
+            if (colon < 0)
+                continue;
+            Similar s;
+            s.pos = posName(group.left(colon));
+            for (QString w : group.mid(colon + 1).split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
+                // American spelling: "well-favoured" becomes "well-favored"
+                QStringList pieces = w.split(QLatin1Char('-'));
+                for (QString &p : pieces)
+                    p = us.value(p.toLower(), p);
+                w = pieces.join(QLatin1Char('-'));
+                const QString k = s.pos + QLatin1Char(':') + w.toLower();
+                if (seen.contains(k) || w.compare(word, Qt::CaseInsensitive) == 0)
+                    continue;
+                // names ("Saul Bellow" for "bellow") only for a word written with a capital
+                if (!word.isEmpty() && word.at(0).isLower() && !w.isEmpty() && w.at(0).isUpper())
+                    continue;
+                seen.insert(k);
+                s.words << w;
+            }
+            if (s.words.isEmpty())
+                continue;
+            bool merged = false;
+            for (Similar &o : out)
+                if (o.pos == s.pos) {
+                    o.words << s.words;
+                    merged = true;
+                }
+            if (!merged)
+                out << s;
+        }
+    }
+    return out;
+}
+
+bool isSingleWord(const QString &text, QString *word)
+{
+    const QString t = text.trimmed();
+    if (t.isEmpty() || t.contains(QRegularExpression(QStringLiteral("\\s"))))
+        return false;
+    const Parts p = parts(t);
+    if (p.core.isEmpty())
+        return false;
+    for (int i = 0; i < p.core.size(); ++i) {
+        const QChar c = p.core.at(i);
+        const bool inner = i > 0 && i < p.core.size() - 1;
+        if (!c.isLetter() && !(inner && (c == QLatin1Char('-') || c == QLatin1Char('\'') || c == QChar(0x2019))))
+            return false;
+    }
+    if (word)
+        *word = p.core;
+    return true;
 }
 
 } // namespace tp

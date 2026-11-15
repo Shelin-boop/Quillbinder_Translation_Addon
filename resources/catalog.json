@@ -1,11 +1,10 @@
 {
-  "format": 1,
-  "release": "models-1",
+  "format": 2,
+  "release": "models-2",
   "engine": "CTranslate2 4.9.0",
   "models": [
     {
       "id": "coedit-large",
-      "kind": "corrector",
       "title": "CoEdIT Large (Grammarly)",
       "summary": "Best quality: finds most spelling and grammar errors. Non-commercial use only.",
       "license": "CC BY-NC 4.0",
@@ -50,11 +49,15 @@
           "sha256": "d60acb128cf7b7f2536e8f38a5b18a05535c9e14c7a355904270e15b0945ea86"
         }
       ],
-      "sizeMB": 788
+      "sizeMB": 788,
+      "release": "models-1",
+      "kinds": [
+        "corrector"
+      ],
+      "type": "seq2seq"
     },
     {
       "id": "coedit-base",
-      "kind": "corrector",
       "title": "CoEdIT Base (free license)",
       "summary": "Smaller and faster, free for any use, but it misses many errors.",
       "license": "Apache-2.0",
@@ -99,11 +102,15 @@
           "sha256": "d60acb128cf7b7f2536e8f38a5b18a05535c9e14c7a355904270e15b0945ea86"
         }
       ],
-      "sizeMB": 250
+      "sizeMB": 250,
+      "release": "models-1",
+      "kinds": [
+        "corrector"
+      ],
+      "type": "seq2seq"
     },
     {
       "id": "opus-mt-de-en",
-      "kind": "translator",
       "title": "OPUS-MT German to English (University of Helsinki)",
       "summary": "Translates German into English. Free for any use.",
       "license": "Apache-2.0",
@@ -155,7 +162,218 @@
           "sha256": "678f2a1177d8389f67b66299762dcc4fc567e89b07e212ba91b0c56daecf47ce"
         }
       ],
-      "sizeMB": 79
+      "sizeMB": 79,
+      "release": "models-1",
+      "kinds": [
+        "translator"
+      ],
+      "type": "seq2seq"
+    },
+    {
+      "id": "qwen3-1.7b",
+      "kinds": [
+        "corrector",
+        "translator"
+      ],
+      "type": "chat",
+      "title": "Qwen3 1.7B (Qwen team, Alibaba Cloud)",
+      "summary": "A small general model told to fix only real errors and to leave your style and dialogue alone; it also translates German. Free for any use.",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "nonCommercial": false,
+      "credit": "Qwen3-1.7B by the Qwen team (Alibaba Cloud), https://huggingface.co/Qwen/Qwen3-1.7B, licensed under Apache-2.0. Changed: converted to CTranslate2 with 8-bit weights.",
+      "release": "models-2",
+      "memoryMB": 2768,
+      "source": "https://huggingface.co/Qwen/Qwen3-1.7B/tree/70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+      "tokenizer": {
+        "type": "bpe",
+        "file": "tokenizer.json"
+      },
+      "chat": {
+        "template": "chatml",
+        "thinkTags": true
+      },
+      "files": [
+        {
+          "name": "MODEL-LICENSE.txt",
+          "asset": "qwen3-1.7b--MODEL-LICENSE.txt",
+          "size": 374,
+          "sha256": "d41abb3c00d399cd1329a07947487efdd7ae0a390f0cd8aed2a30773bf50f175"
+        },
+        {
+          "name": "config.json",
+          "asset": "qwen3-1.7b--config.json",
+          "size": 147,
+          "sha256": "3361b85af004d8990d67a351aded9c60c3ef30bcd386a809b0c1dd80f93198ef"
+        },
+        {
+          "name": "model.bin",
+          "asset": "qwen3-1.7b--model.bin",
+          "size": 1723631567,
+          "sha256": "d29d3e99d421082bd6b699394b39b654918000b69f499fdcb1c1492255e38bbd"
+        },
+        {
+          "name": "tokenizer-check.json",
+          "asset": "qwen3-1.7b--tokenizer-check.json",
+          "size": 4505,
+          "sha256": "71b886fb8a50f283938cbc4ecca91f447dba51b8ef347f25fb7e11601d3662e4"
+        },
+        {
+          "name": "tokenizer.json",
+          "asset": "qwen3-1.7b--tokenizer.json",
+          "size": 11422654,
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        },
+        {
+          "name": "vocabulary.json",
+          "asset": "qwen3-1.7b--vocabulary.json",
+          "size": 3861154,
+          "sha256": "bc2e9b64c2cacad6982f9fe1a13f947e145889d19119ad0ccd3f72e809cedd10"
+        }
+      ],
+      "sizeMB": 1739
+    },
+    {
+      "id": "qwen3-4b",
+      "kinds": [
+        "corrector",
+        "translator"
+      ],
+      "type": "chat",
+      "title": "Qwen3 4B (Qwen team, Alibaba Cloud)",
+      "summary": "A larger general model told to fix only real errors and to leave your style and dialogue alone; it also translates German. Better but slower; needs a computer with 8 GB of memory or more. Free for any use.",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "nonCommercial": false,
+      "credit": "Qwen3-4B-Instruct-2507 by the Qwen team (Alibaba Cloud), https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507, licensed under Apache-2.0. Changed: converted to CTranslate2 with 8-bit weights.",
+      "release": "models-2",
+      "memoryMB": 5533,
+      "source": "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/tree/cdbee75f17c01a7cc42f958dc650907174af0554",
+      "tokenizer": {
+        "type": "bpe",
+        "file": "tokenizer.json"
+      },
+      "chat": {
+        "template": "chatml",
+        "thinkTags": false
+      },
+      "files": [
+        {
+          "name": "MODEL-LICENSE.txt",
+          "asset": "qwen3-4b--MODEL-LICENSE.txt",
+          "size": 408,
+          "sha256": "1c491c9ca7f8e4230a017f9835a609e87a2e74d46bd23f5f15d0342f55c31c95"
+        },
+        {
+          "name": "config.json",
+          "asset": "qwen3-4b--config.json",
+          "size": 147,
+          "sha256": "3361b85af004d8990d67a351aded9c60c3ef30bcd386a809b0c1dd80f93198ef"
+        },
+        {
+          "name": "model.bin",
+          "asset": "",
+          "size": 4027735607,
+          "sha256": "4307805dc2a0f2b7a10e2d514e4627db153924ad2d4a808dc9a3ea593c1d2083",
+          "parts": [
+            {
+              "asset": "qwen3-4b--model.bin.part1",
+              "size": 1900000000,
+              "sha256": "4ca00947912aa7f341eecbf3e2544395b41ffba7f989e9278edb1fe4656bae47"
+            },
+            {
+              "asset": "qwen3-4b--model.bin.part2",
+              "size": 1900000000,
+              "sha256": "b3f4f6978fe35c9434c168f98d900b9d2318690826eccd97a8ddfa5f88fc8a16"
+            },
+            {
+              "asset": "qwen3-4b--model.bin.part3",
+              "size": 227735607,
+              "sha256": "d701c01ae6900781e620ded6b30f9eb3fc4c53ad6a6c94b30b93516d32beb4a7"
+            }
+          ]
+        },
+        {
+          "name": "tokenizer-check.json",
+          "asset": "qwen3-4b--tokenizer-check.json",
+          "size": 4425,
+          "sha256": "e14668cb9979e0740212d43b89400d28c88639215d00a9e747df03732b82e5dc"
+        },
+        {
+          "name": "tokenizer.json",
+          "asset": "qwen3-4b--tokenizer.json",
+          "size": 11422654,
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        },
+        {
+          "name": "vocabulary.json",
+          "asset": "qwen3-4b--vocabulary.json",
+          "size": 3861154,
+          "sha256": "bc2e9b64c2cacad6982f9fe1a13f947e145889d19119ad0ccd3f72e809cedd10"
+        }
+      ],
+      "sizeMB": 4043
+    },
+    {
+      "id": "opus-mt-big-de-en",
+      "kinds": [
+        "translator"
+      ],
+      "type": "seq2seq",
+      "title": "OPUS-MT Big, German to English (University of Helsinki)",
+      "summary": "A larger translation model than OPUS-MT German to English; usually translates better. Free for any use with credit (CC BY 4.0).",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "nonCommercial": false,
+      "credit": "opus-mt-tc-big-gmw-gmw by the Language Technology Research Group at the University of Helsinki (Helsinki-NLP), https://huggingface.co/Helsinki-NLP/opus-mt-tc-big-gmw-gmw, licensed under CC BY 4.0. Changed: converted to CTranslate2 with 8-bit weights; used for German to English only.",
+      "release": "models-2",
+      "memoryMB": 531,
+      "source": "https://huggingface.co/Helsinki-NLP/opus-mt-tc-big-gmw-gmw/tree/b162f23f2a033c84b67fa66903b33231bf835097",
+      "tokenizer": {
+        "type": "marian",
+        "source": "source.spm",
+        "target": "target.spm"
+      },
+      "sourceToken": ">>eng<<",
+      "files": [
+        {
+          "name": "MODEL-LICENSE.txt",
+          "asset": "opus-mt-big-de-en--MODEL-LICENSE.txt",
+          "size": 530,
+          "sha256": "328564f2061e85f66dae8b0b980052b81ac3141f4c822cc112239c3f69c87d33"
+        },
+        {
+          "name": "config.json",
+          "asset": "opus-mt-big-de-en--config.json",
+          "size": 223,
+          "sha256": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af"
+        },
+        {
+          "name": "model.bin",
+          "asset": "opus-mt-big-de-en--model.bin",
+          "size": 215975033,
+          "sha256": "8884d5b116fcd46865f52ee7f64bd8d3b53fe49d2f8bacd06e30ba14e812e8bb"
+        },
+        {
+          "name": "shared_vocabulary.json",
+          "asset": "opus-mt-big-de-en--shared_vocabulary.json",
+          "size": 616875,
+          "sha256": "137b5a89e79c793004cbf8ca27ce58559bfab7510c75d0b201466f8428f77ce6"
+        },
+        {
+          "name": "source.spm",
+          "asset": "opus-mt-big-de-en--source.spm",
+          "size": 803488,
+          "sha256": "b60a485d1557ca976c144d2ce667e7cb410d52f01696fb3c6e1178cb268eba51"
+        },
+        {
+          "name": "target.spm",
+          "asset": "opus-mt-big-de-en--target.spm",
+          "size": 801079,
+          "sha256": "6af6fcca1f79b251959fb1ab2f1461fde04c8e5070879e951862c20b026975e7"
+        }
+      ],
+      "sizeMB": 218
     }
   ]
 }

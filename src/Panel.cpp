@@ -25,6 +25,8 @@
 #include <QTextDocument>
 #include <QThread>
 #include <QToolButton>
+#include <QUrl>
+#include <QRegularExpression>
 
 namespace tp {
 
@@ -40,22 +42,9 @@ const QString kCorrect = QStringLiteral("Fix grammatical errors in this sentence
 const QString kFormal = QStringLiteral("Make this sentence more formal: ");
 const QString kParaphrase = QStringLiteral("Paraphrase this sentence: ");
 
-const QSet<QString> &englishWordList()
-{
-    static const QSet<QString> words = [] {
-        QSet<QString> out;
-        QFile f(QStringLiteral(":/translation-proofreading/en-words.txt"));
-        if (f.open(QIODevice::ReadOnly))
-            for (const QByteArray &line : f.readAll().split('\n'))
-                if (!line.isEmpty())
-                    out.insert(QString::fromUtf8(line));
-        return out;
-    }();
-    return words;
-}
-
 QList<Alternative> runAltJob(const AltJob &j, QString *error)
 {
+    TranslateTool::lowerPriority();
     if (!j.engine || !j.engine->load(j.slot, j.files, j.threads, error))
         return {};
     return j.engine->alternatives(j.slot, j.source, j.current, j.word, j.options, 7, error);
@@ -108,6 +97,12 @@ void InputEdit::contextMenuEvent(QContextMenuEvent *e)
     delete menu;
 }
 
+void InputEdit::mouseDoubleClickEvent(QMouseEvent *e)
+{
+    QPlainTextEdit::mouseDoubleClickEvent(e);   // the word is selected as usual
+    m_panel->showInfoForInput(cursorForPosition(e->pos()).position());
+}
+
 void InputEdit::keyPressEvent(QKeyEvent *e)
 {
     if ((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && (e->modifiers() & Qt::ControlModifier)) {
@@ -125,8 +120,16 @@ OutputView::OutputView(QWidget *parent)
     setObjectName(QStringLiteral("tpOutput"));
     setOpenLinks(false);
     setPlaceholderText(tr("The result. Marked words were changed: click one to keep the original or to choose "
-                          "another word. Every other word can be clicked for other words, too."));
+                          "another word. Every other word can be clicked for other words, too; a double click shows a "
+                          "word's suggestions at the bottom."));
     viewport()->setCursor(Qt::PointingHandCursor);
+    connect(this, &QTextBrowser::anchorClicked, this, [this](const QUrl &url) { emit linkClicked(url.toString()); });
+    m_clickTimer.setSingleShot(true);
+    m_clickTimer.setInterval(QApplication::doubleClickInterval());
+    connect(&m_clickTimer, &QTimer::timeout, this, [this] {
+        if (m_clickPos >= 0)
+            emit wordClicked(m_clickPos, m_clickGlobal);
+    });
 }
 
 int OutputView::charAt(const QPoint &viewportPos) const
@@ -144,11 +147,30 @@ void OutputView::mousePressEvent(QMouseEvent *e)
 void OutputView::mouseReleaseEvent(QMouseEvent *e)
 {
     QTextBrowser::mouseReleaseEvent(e);
+    if (m_clickPos == -2) {   // the release of a double click
+        m_clickPos = -1;
+        return;
+    }
+    if (!anchorAt(e->pos()).isEmpty())   // a link: anchorClicked (below) takes it
+        return;
     if (e->button() != Qt::LeftButton || (e->pos() - m_pressPos).manhattanLength() > 4 || textCursor().hasSelection())
         return;
     const int pos = charAt(e->pos());
-    if (pos >= 0)
-        emit wordClicked(pos, e->globalPosition().toPoint());
+    if (pos >= 0) {
+        // the menu after the double-click time: a double click is no click
+        m_clickPos = pos;
+        m_clickGlobal = e->globalPosition().toPoint();
+        m_clickTimer.start();
+    }
+}
+
+void OutputView::mouseDoubleClickEvent(QMouseEvent *e)
+{
+    m_clickTimer.stop();
+    const int pos = charAt(e->pos());
+    m_clickPos = -2;
+    if (pos >= 0 && anchorAt(e->pos()).isEmpty())
+        emit wordDoubleClicked(pos);
 }
 
 void OutputView::contextMenuEvent(QContextMenuEvent *e)
@@ -167,7 +189,34 @@ Panel::Panel(TranslateTool *tool, Place place, QWidget *parent)
     m_input = new InputEdit(this, this);
     m_output = new OutputView(this);
     connect(m_output, &OutputView::wordClicked, this, &Panel::outputClicked);
+    connect(m_output, &OutputView::wordDoubleClicked, this, &Panel::showInfoForOutput);
+    connect(m_output, &OutputView::linkClicked, this, &Panel::linkClicked);
     connect(m_output, &OutputView::contextRequested, this, &Panel::outputContextMenu);
+
+    // 1.1: the information area, and live work about a second after the writer stops typing
+    m_info = new QTextBrowser(this);
+    m_info->setObjectName(QStringLiteral("tpInfo"));
+    m_info->setOpenLinks(false);
+    m_info->setPlaceholderText(tr("Double-click a word in the text or in the result: its spelling suggestions, words of "
+                                  "a similar meaning and the model's other words appear here."));
+    m_info->setMinimumHeight(m_info->fontMetrics().lineSpacing() * 3);
+    m_live = toolButton(QStringLiteral("view-refresh"), tr("Live"),
+                        tr("Live: about a second after you stop typing, the changed sentences are worked on again"), this);
+    m_live->setObjectName(QStringLiteral("tpLive"));
+    m_live->setCheckable(true);
+    m_live->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_live->setChecked(m_tool->setting(QStringLiteral("live"), true).toBool());
+    connect(m_live, &QToolButton::toggled, this, [this](bool on) {
+        m_tool->setSetting(QStringLiteral("live"), on);
+        if (on && !inputText().trimmed().isEmpty())
+            m_liveTimer.start();
+        else if (!on)
+            m_liveTimer.stop();
+    });
+    m_liveTimer.setSingleShot(true);
+    m_liveTimer.setInterval(1000);
+    connect(&m_liveTimer, &QTimer::timeout, this, [this] { runNow(true); });
+    connect(m_input, &QPlainTextEdit::textChanged, this, &Panel::liveTyped);
 
     m_task = new QComboBox(this);
     m_task->setObjectName(QStringLiteral("tpTask"));
@@ -253,6 +302,7 @@ void Panel::buildInspectorLayout()
     auto *buttons = new QHBoxLayout;
     buttons->setSpacing(2);
     buttons->addWidget(m_go);
+    buttons->addWidget(m_live);
     buttons->addWidget(m_stop);
     buttons->addStretch(1);
     buttons->addWidget(m_from);
@@ -281,10 +331,12 @@ void Panel::buildInspectorLayout()
     m_split->addWidget(m_input);
     m_split->addWidget(controls);
     m_split->addWidget(out);
+    m_split->addWidget(m_info);
     m_split->setCollapsible(1, false);
     m_split->setStretchFactor(0, 2);
     m_split->setStretchFactor(1, 0);
     m_split->setStretchFactor(2, 3);
+    m_split->setStretchFactor(3, 1);
     auto *l = new QVBoxLayout(this);
     l->setContentsMargins(2, 2, 2, 2);
     l->addWidget(m_split);
@@ -311,6 +363,7 @@ void Panel::buildWindowLayout()
     ml->setContentsMargins(4, 0, 4, 0);
     ml->addStretch(1);
     ml->addWidget(m_go, 0, Qt::AlignHCenter);
+    ml->addWidget(m_live, 0, Qt::AlignHCenter);
     ml->addWidget(m_stop, 0, Qt::AlignHCenter);
     ml->addStretch(1);
 
@@ -329,10 +382,17 @@ void Panel::buildWindowLayout()
     m_split->setStretchFactor(1, 0);
     m_split->setStretchFactor(2, 1);
 
+    // the information area under both, the width of the window
+    auto *outer = new QSplitter(Qt::Vertical, this);
+    outer->setObjectName(QStringLiteral("tpInfoSplit"));
+    outer->addWidget(m_split);
+    outer->addWidget(m_info);
+    outer->setStretchFactor(0, 4);
+    outer->setStretchFactor(1, 1);
     auto *l = new QVBoxLayout(this);
     l->setContentsMargins(6, 6, 6, 6);
     l->addLayout(top);
-    l->addWidget(m_split, 1);
+    l->addWidget(outer, 1);
     l->addWidget(m_progress);
     l->addWidget(m_status);
 }
@@ -383,6 +443,7 @@ QString Panel::stylePrefix() const
 void Panel::setInput(const QString &text)
 {
     m_input->setPlainText(text);
+    m_liveTimer.stop();   // the caller runs when it wants a result
 }
 
 QString Panel::inputText() const
@@ -418,11 +479,77 @@ void Panel::setBusy(bool busy)
 
 void Panel::run()
 {
-    if (m_busy)
+    m_liveTimer.stop();
+    runNow(false);
+}
+
+QString Panel::systemFor(const QString &what)
+{
+    if (what == QLatin1String("translate"))
+        return QStringLiteral(
+            "You translate German fiction into natural, idiomatic American English. Translate the user's text "
+            "faithfully: keep its meaning, tone, tense and paragraph breaks, and keep dialogue as dialogue with the "
+            "same quotation marks. Do not add, explain or leave out anything. Answer with the translation only.");
+    if (what == QLatin1String("formal"))
+        return QStringLiteral(
+            "You are an editor. Rewrite the user's English text in a more formal tone. Keep its meaning, its facts and "
+            "its dialogue as dialogue. Do not explain. Answer with the rewritten text only.");
+    if (what == QLatin1String("paraphrase"))
+        return QStringLiteral(
+            "You are an editor. Repeat the user's English sentence; you may choose other words, but keep its meaning, "
+            "tone and length. Answer with the sentence only.");
+    return QStringLiteral(
+        "You are a careful proofreader of English fiction. Correct only clear errors of spelling, grammar and "
+        "punctuation in the user's text, in American English. Keep the author's words, style, tone and sentence "
+        "structure. Keep dialogue as written, including informal speech, slang, contractions and sentence fragments. "
+        "Do not add, move or remove quotation marks. Do not rephrase, explain or comment. If there is nothing to "
+        "correct, repeat the text unchanged. Answer with the text only.");
+}
+
+bool Panel::chatModel(const QString &modelId) const
+{
+    const CatalogModel *m = m_tool->store()->model(modelId);
+    return m && m->type == QLatin1String("chat");
+}
+
+void Panel::liveTyped()
+{
+    if (isLive())
+        m_liveTimer.start();
+}
+
+bool Panel::isLive() const
+{
+    return m_live && m_live->isChecked();
+}
+
+void Panel::setLive(bool on)
+{
+    m_live->setChecked(on);
+}
+
+void Panel::runNow(bool live)
+{
+    if (m_busy) {
+        if (live) {   // typed on while a run was busy: it stops after the sentences being worked on, then runs again
+            m_rerun = true;
+            if (m_cancel)
+                m_cancel->store(true);
+        }
         return;
+    }
+    m_liveRun = live;
     const QString text = inputText();
     if (text.trimmed().isEmpty()) {
-        setStatus(tr("There is no text to work on yet."));
+        if (live) {
+            m_units.clear();
+            m_single = SingleWord();
+            m_output->clear();
+            m_notes->setVisible(false);
+            setStatus(tr("Ready."));
+        } else {
+            setStatus(tr("There is no text to work on yet."));
+        }
         emit finished();
         return;
     }
@@ -432,6 +559,26 @@ void Panel::run()
                                                   : detectLanguage(text);
     m_styleId = m_style->currentData().toString();
     const QString kind = slot();
+    const Rules rules = m_tool->rules();
+    // the writer's decisions on the sentences that stay as they were
+    QHash<QString, QList<Segment>> previous;
+    for (const Unit &u : std::as_const(m_units))
+        previous.insert(u.original, u.segments);
+
+    // a single English word: corrected by the word list, with every suggestion (no model needed)
+    QString single;
+    if (proofreading() && isSingleWord(text, &single)) {
+        m_plan = makePlan(text.trimmed(), false);
+        m_units.clear();
+        m_noteList.clear();
+        Unit u;
+        u.original = text.trimmed();
+        u.modelInput = toPlainQuotes(u.original);
+        m_units << u;
+        finishSingle();
+        return;
+    }
+
     const QString modelId = m_tool->chosenModel(kind);
     if (modelId.isEmpty()) {
         setStatus(kind == QLatin1String("translator")
@@ -449,31 +596,60 @@ void Panel::run()
         emit finished();
         return;
     }
-    const Rules rules = m_tool->rules();
+    // 1.1: never a model the computer has no room for (it would make the system swap or stop programs)
+    const QString memory = m_tool->loadProblem(kind, modelId);
+    if (!memory.isEmpty()) {
+        setStatus(memory);
+        emit finished();
+        return;
+    }
     m_plan = makePlan(text, !proofreading());
     m_units.clear();
     m_noteList.clear();
+    m_single = SingleWord();
     int dashes = 0;
-    QStringList modelTexts;
-    for (const QString &u : m_plan.units) {
+    for (const QString &u : std::as_const(m_plan.units)) {
         Unit unit;
         unit.original = u;
         int n = 0;
         unit.modelInput = toPlainQuotes(beforeModel(u, rules, &n));
         dashes += n;
-        modelTexts << unit.modelInput;
         m_units << unit;
     }
+    // keep the decisions for later (finishRun compares)
+    for (Unit &u : m_units)
+        if (previous.contains(u.original))
+            u.segments = previous.value(u.original);
     if (dashes)
         m_noteList << (dashes == 1 ? tr("1 dash replaced by a comma (rule: no em-dashes): click it to keep the dash.")
                                    : tr("%1 dashes replaced (rule: no em-dashes): click one to keep the dash.").arg(dashes));
 
     RunOptions o;
-    o.prefix = proofreading() ? stylePrefix() : QString();
+    const bool chat = chatModel(modelId);
+    if (chat) {
+        o.system = systemFor(proofreading() ? m_styleId : QStringLiteral("translate"));
+        o.batch = 4;
+    } else {
+        o.prefix = proofreading() ? stylePrefix() : QString();
+        o.batch = 8;
+    }
     // beam 4: with 2 the large corrector turned "bellow" into "downstairs" (test of 2026-11-15)
     o.beam = m_tool->setting(QStringLiteral("careful"), false).toBool() ? 6 : 4;
     o.banDashes = rules.noEmDash;
-    o.batch = 8;
+    // the sentences worked on before (same model, same instruction) come from the cache
+    m_runKey = modelId + QLatin1Char('\x1f') + o.prefix + o.system + QLatin1Char('\x1f') + (o.banDashes ? u'1' : u'0')
+               + QString::number(o.beam);
+    m_sent.clear();
+    QStringList modelTexts;
+    for (int i = 0; i < m_units.size(); ++i)
+        if (!m_cache.contains(m_runKey + QLatin1Char('\x1f') + m_units.at(i).modelInput)) {
+            m_sent << i;
+            modelTexts << m_units.at(i).modelInput;
+        }
+    if (modelTexts.isEmpty()) {
+        finishRun({}, QString(), 0.0, false);
+        return;
+    }
     const ModelFiles files = m_tool->store()->files(modelId);
     const int threads = m_tool->threads();
     const QString slotName = kind;
@@ -485,12 +661,15 @@ void Panel::run()
     setStatus(engine->loaded(slotName) == modelId ? tr("Working...") : tr("Loading %1...").arg(title));
     QPointer<Panel> self(this);
     QThread *t = QThread::create([self, engine, files, threads, slotName, modelTexts, o, cancel] {
+        TranslateTool::lowerPriority();
         QElapsedTimer clock;
         clock.start();
         QString error;
         QStringList results;
+        RunOptions opts = o;
+        opts.cancel = cancel.get();
         if (engine->load(slotName, files, threads, &error)) {
-            results = engine->run(slotName, modelTexts, o,
+            results = engine->run(slotName, modelTexts, opts,
                                   [self, cancel](int done, int total) {
                                       if (self)
                                           QMetaObject::invokeMethod(self.data(), [self, done, total] {
@@ -518,28 +697,45 @@ void Panel::run()
 
 void Panel::stop()
 {
+    m_rerun = false;
+    m_liveTimer.stop();
     if (m_cancel)
         m_cancel->store(true);
     setStatus(tr("Stopping after the sentences being worked on..."));
 }
 
-void Panel::finishRun(const QStringList &results, const QString &error, double seconds, bool stopped)
+void Panel::finishRun(const QStringList &sentResults, const QString &error, double seconds, bool stopped)
 {
     setBusy(false);
     m_tool->touchEngine();
-    if (!error.isEmpty() || results.size() != m_units.size()) {
+    if (!error.isEmpty() || sentResults.size() != m_sent.size()) {
         setStatus(tr("The work failed: %1").arg(error.isEmpty() ? tr("no result") : error));
+        m_rerun = false;
         emit finished();
         return;
     }
+    // the results of the model and those from the cache
+    QStringList results;
+    for (int i = 0; i < m_units.size(); ++i)
+        results << m_cache.value(m_runKey + QLatin1Char('\x1f') + m_units.at(i).modelInput);
+    for (int k = 0; k < m_sent.size(); ++k) {
+        const QString &r = sentResults.at(k);
+        results[m_sent.at(k)] = r;
+        if (!r.isEmpty())
+            m_cache.insert(m_runKey + QLatin1Char('\x1f') + m_units.at(m_sent.at(k)).modelInput, r);
+    }
+    if (m_cache.size() > 5000)
+        m_cache.clear();
     const Rules rules = m_tool->rules();
     int kept = 0;
     for (int i = 0; i < m_units.size(); ++i) {
         Unit &u = m_units[i];
+        const QList<Segment> before = u.segments;   // the writer's decisions of the run before, if any
         QString raw = results.at(i);
         if (raw.isEmpty()) // stopped before this sentence
             raw = u.modelInput;
         u.raw = raw;
+        u.flag.clear();
         if (proofreading() && m_styleId == QLatin1String("correct")) {
             if (changedTooMuch(u.modelInput, raw)) {
                 u.flag = tr("The model rewrote this sentence too much; your sentence was kept. (It wrote: %1)").arg(raw);
@@ -551,12 +747,25 @@ void Panel::finishRun(const QStringList &results, const QString &error, double s
                 ++kept;
             }
         }
-        const QString shown = afterModel(u.raw, rules, &m_noteList);
+        QString shown = afterModel(u.raw, rules, &m_noteList);
         if (proofreading()) {
+            // 1.1: the writer's quotation marks and dialogue punctuation where the writer had them (and curly, if
+            // the rule says so: from their places, the direction is clear)
+            shown = keepDialogue(u.original, shown);
+            if (rules.curlyQuotes)
+                shown = toCurlyQuotes(toPlainQuotes(shown));
             u.segments = compareWords(u.original, shown);
+            // the same suggestions as in the run before: the writer's choices stay
+            if (before.size() == u.segments.size()) {
+                bool same = true;
+                for (int s = 0; s < before.size() && same; ++s)
+                    same = before.at(s).before == u.segments.at(s).before && before.at(s).after == u.segments.at(s).after;
+                if (same)
+                    u.segments = before;
+            }
         } else {
             Segment s;
-            s.before = s.after = words(shown);
+            s.before = s.after = words(tidyPunctuation(shown));
             u.segments = {s};
         }
     }
@@ -565,19 +774,112 @@ void Panel::finishRun(const QStringList &results, const QString &error, double s
                                       "(point at the sentence to see what it wrote).")
                                  : tr("%1 sentences kept as you wrote them: the model's versions did not look right "
                                       "(point at a sentence to see what it wrote).").arg(kept));
+    // a single German word: its translation, and below it the model's other words and similar English words
+    QString single;
+    if (!proofreading() && isSingleWord(inputText(), &single) && !stopped) {
+        m_single = SingleWord();
+        m_single.on = true;
+        m_single.word = single;
+        QString english;
+        isSingleWord(unitText(0), &english);
+        m_single.result = english.isEmpty() ? unitText(0) : english;
+        m_single.similar = similarWords(m_single.result, &m_single.base);
+        requestSingleModelWords();
+    }
     render();
+    const QString done = m_sent.isEmpty() ? tr("Done") : tr("Done in %1 s").arg(seconds, 0, 'f', 1);
     if (stopped)
-        setStatus(tr("Stopped. The sentences done so far are shown; the rest is as you wrote it."));
+        setStatus(m_rerun ? tr("Working on your changes...")
+                          : tr("Stopped. The sentences done so far are shown; the rest is as you wrote it."));
     else if (proofreading())
-        setStatus(changeCount() == 0 ? tr("Done in %1 s: no changes.").arg(seconds, 0, 'f', 1)
-                  : changeCount() == 1
-                      ? tr("Done in %1 s: 1 change. Click it for the original and other words.").arg(seconds, 0, 'f', 1)
-                      : tr("Done in %1 s: %2 changes. Click one for the original and other words.")
-                            .arg(seconds, 0, 'f', 1)
-                            .arg(changeCount()));
+        setStatus(changeCount() == 0 ? tr("%1: no changes.").arg(done)
+                  : changeCount() == 1 ? tr("%1: 1 change. Click it for the original and other words.").arg(done)
+                                       : tr("%1: %2 changes. Click one for the original and other words.")
+                                             .arg(done)
+                                             .arg(changeCount()));
     else
-        setStatus(tr("Translated in %1 s. Click a word for other words.").arg(seconds, 0, 'f', 1));
+        setStatus(tr("Translated (%1). Click a word for other words.").arg(m_sent.isEmpty() ? tr("at once")
+                                                                                            : tr("%1 s").arg(seconds, 0, 'f', 1)));
     emit finished();
+    if (m_rerun) {
+        m_rerun = false;
+        QTimer::singleShot(0, this, [this] { runNow(true); });
+    }
+}
+
+void Panel::finishSingle()
+{
+    // the word as it should be: as typed when the dictionary knows it, else the nearest word of the dictionary
+    Unit &u = m_units[0];
+    QString word;
+    isSingleWord(u.original, &word);
+    m_single = SingleWord();
+    m_single.on = true;
+    m_single.word = word;
+    const bool known = knownWord(word);
+    m_single.spelling = known ? QStringList() : spellingSuggestions(word, 12);
+    m_single.result = known || m_single.spelling.isEmpty() ? word : m_single.spelling.first();
+    m_single.similar = similarWords(m_single.result, &m_single.base);
+    QString shown = u.original;
+    shown.replace(word, m_single.result);
+    u.raw = toPlainQuotes(shown);
+    u.segments = compareWords(u.original, shown);
+    render();
+    if (known)
+        setStatus(tr("“%1” is spelled correctly. Below: words of a similar meaning.").arg(word));
+    else if (m_single.spelling.isEmpty())
+        setStatus(tr("“%1” is not in the dictionary, and no word near it is.").arg(word));
+    else
+        setStatus(tr("“%1” is not in the dictionary: “%2” is the nearest word. Below: the other suggestions.")
+                      .arg(word, m_single.result));
+    requestSingleModelWords();
+    emit finished();
+}
+
+void Panel::requestSingleModelWords()
+{
+    // the model's other words for the word (proofreading: the corrector's; translation: other translations)
+    AltJob job;
+    QString jobError;
+    if (!m_single.on || m_units.isEmpty() || !outputJob(0, 0, &job, &jobError))
+        return;
+    m_single.modelPending = true;
+    const int request = ++m_singleRequest;
+    const QString current = words(job.current).value(0);
+    QPointer<Panel> self(this);
+    QThread *t = QThread::create([self, job, request, current] {
+        TranslateTool::lowerPriority();
+        QString error;
+        const QList<Alternative> found = runAltJob(job, &error);
+        QMetaObject::invokeMethod(qApp, [self, found, request, current] {
+            if (!self || request != self->m_singleRequest)
+                return;
+            self->m_tool->touchEngine();
+            self->m_single.modelPending = false;
+            for (const Alternative &a : self->filterAlternatives(found, current)) {
+                const QString w = a.word.trimmed().remove(QRegularExpression(QStringLiteral("[.,;:!?\"“”]+$")));
+                if (!w.isEmpty() && w.compare(self->m_single.result, Qt::CaseInsensitive) != 0
+                    && !self->m_single.modelWords.contains(w))
+                    self->m_single.modelWords << w;
+            }
+            self->render();
+        }, Qt::QueuedConnection);
+    });
+    connect(t, &QThread::finished, t, &QObject::deleteLater);
+    t->start();
+}
+
+void Panel::linkClicked(const QString &href)
+{
+    // a word of the suggestions under a single word: it becomes the result
+    if (!href.startsWith(QLatin1String("tp-word:")) || m_units.isEmpty())
+        return;
+    const QString w = QUrl::fromPercentEncoding(href.mid(8).toUtf8());
+    QString shown = m_units.at(0).original;
+    shown.replace(m_single.word, w);
+    chooseOutputAlternative(0, Alternative{w, toPlainQuotes(shown)});
+    m_single.result = w;
+    render();
 }
 
 int Panel::changeCount() const
@@ -674,6 +976,45 @@ void Panel::render()
             }
         }
     }
+    if (m_single.on) {
+        // 1.1: under a single word, every suggestion for it; a click on one makes it the result
+        QTextCharFormat head = plain;
+        head.setForeground(pal.color(QPalette::PlaceholderText));
+        QFont f = m_output->font();
+        f.setPointSizeF(f.pointSizeF() * 0.9);
+        head.setFont(f);
+        QTextCharFormat link = plain;
+        link.setAnchor(true);
+        link.setForeground(pal.color(QPalette::Link));
+        auto list = [&](const QString &title, const QStringList &items) {
+            if (items.isEmpty())
+                return;
+            c.insertBlock();
+            c.insertText(title + QStringLiteral(" "), head);
+            for (int i = 0; i < items.size(); ++i) {
+                if (i > 0)
+                    c.insertText(QStringLiteral(", "), plain);
+                QTextCharFormat l = link;
+                l.setAnchorHref(QStringLiteral("tp-word:") + QString::fromUtf8(QUrl::toPercentEncoding(items.at(i))));
+                l.setToolTip(tr("Use “%1”").arg(items.at(i)));
+                c.insertText(items.at(i), l);
+            }
+        };
+        c.insertBlock();
+        if (proofreading())
+            list(tr("Spelling:"), m_single.spelling);
+        for (const Similar &sim : std::as_const(m_single.similar))
+            list(tr("Similar (%1%2):").arg(sim.pos, m_single.base.isEmpty() || m_single.base == m_single.result.toLower()
+                                                        ? QString()
+                                                        : tr(", for “%1”").arg(m_single.base)),
+                 sim.words);
+        if (!m_single.modelWords.isEmpty())
+            list(proofreading() ? tr("The model’s other words:") : tr("Other translations:"), m_single.modelWords);
+        else if (m_single.modelPending) {
+            c.insertBlock();
+            c.insertText(tr("Asking the model for other words..."), head);
+        }
+    }
     m_output->verticalScrollBar()->setValue(scroll);
     m_notes->setText(m_noteList.join(QLatin1Char('\n')));
     m_notes->setVisible(!m_noteList.isEmpty());
@@ -726,7 +1067,7 @@ bool Panel::realWord(const QString &word) const
     // a single letter is a piece of a word, except "a" and "I"
     if (letters.size() == 1 && letters != QLatin1String("a") && letters != QLatin1String("A") && letters != QLatin1String("I"))
         return false;
-    const QSet<QString> &list = englishWordList();
+    const QSet<QString> &list = wordList();
     if (list.isEmpty())
         return true; // no list: nothing can be judged
     if (list.contains(letters) || list.contains(letters.toLower()))
@@ -749,13 +1090,21 @@ bool Panel::outputJob(int unit, int word, AltJob *job, QString *error)
     job->engine = m_tool->engine(error);
     if (!job->engine)
         return false;
+    if (const QString memory = m_tool->loadProblem(slot(), modelId); !memory.isEmpty()) {
+        if (error)
+            *error = memory;
+        return false;
+    }
     job->slot = slot();
     job->files = m_tool->store()->files(modelId);
     job->threads = m_tool->threads();
     job->source = m_units.at(unit).modelInput;
     job->current = toPlainQuotes(unitText(unit));
     job->word = word;
-    job->options.prefix = proofreading() ? stylePrefix() : QString();
+    if (chatModel(modelId))
+        job->options.system = systemFor(proofreading() ? m_styleId : QStringLiteral("translate"));
+    else
+        job->options.prefix = proofreading() ? stylePrefix() : QString();
     job->options.banDashes = m_tool->rules().noEmDash;
     return true;
 }
@@ -791,8 +1140,11 @@ void Panel::chooseOutputAlternative(int unit, const Alternative &a)
     u.raw = a.sentence;
     u.flag.clear();
     QStringList notes;
-    const QString shown = afterModel(a.sentence, m_tool->rules(), &notes);
+    QString shown = afterModel(a.sentence, m_tool->rules(), &notes);
     if (proofreading()) {
+        shown = keepDialogue(u.original, shown);
+        if (m_tool->rules().curlyQuotes)
+            shown = toCurlyQuotes(toPlainQuotes(shown));
         u.segments = compareWords(u.original, shown);
     } else {
         Segment s;
@@ -957,12 +1309,20 @@ QList<Alternative> Panel::inputAlternatives(const InputPlace &place, QString *er
     job.engine = m_tool->engine(error);
     if (!job.engine)
         return {};
+    if (const QString memory = m_tool->loadProblem(QStringLiteral("corrector"), modelId); !memory.isEmpty()) {
+        if (error)
+            *error = memory;
+        return {};
+    }
     job.slot = QStringLiteral("corrector");
     job.files = m_tool->store()->files(modelId);
     job.threads = m_tool->threads();
     job.source = job.current = toPlainQuotes(place.sentence);
     job.word = place.word;
-    job.options.prefix = kParaphrase;
+    if (chatModel(modelId))
+        job.options.system = systemFor(QStringLiteral("paraphrase"));
+    else
+        job.options.prefix = kParaphrase;
     job.options.banDashes = m_tool->rules().noEmDash;
     const QList<Alternative> out = filterAlternatives(runAltJob(job, error), words(job.current).value(place.word));
     m_tool->touchEngine();
@@ -1003,6 +1363,145 @@ void Panel::showInputAlternatives(int position, const QPoint &globalPos)
         connect(ac, &QAction::triggered, this, [this, place, a] { chooseInputAlternative(place, a); });
     }
     menu.exec(globalPos);
+}
+
+// ---------------------------------------------------------------- the information area (1.1)
+
+void Panel::showInfoForOutput(int position)
+{
+    const WordInfo w = wordAt(position);
+    if (w.unit < 0 || w.word < 0)
+        return;
+    QString core;
+    if (!isSingleWord(w.text, &core))
+        core = w.text;
+    m_infoWord = core;
+    m_infoContext = QStringLiteral("output");
+    m_infoEnglish = true;   // the result is English (proofread or translated)
+    m_infoModelWords.clear();
+    m_infoModelError.clear();
+    AltJob job;
+    QString jobError;
+    const bool ok = !m_busy && outputJob(w.unit, w.word, &job, &jobError);
+    requestInfoModelWords(job, ok, jobError, w.text);
+}
+
+void Panel::showInfoForInput(int position)
+{
+    const InputPlace place = inputPlace(position);
+    const QTextBlock block = m_input->document()->findBlock(position);
+    // the word under the position, also in German text (inputPlace gives English words only)
+    QString word = place.wordText;
+    if (word.isEmpty() && block.isValid()) {
+        const QString text = block.text();
+        int a = position - block.position(), b = a;
+        auto inWord = [](QChar c) { return c.isLetter() || c == QLatin1Char('\'') || c == QChar(0x2019) || c == QLatin1Char('-'); };
+        while (a > 0 && inWord(text.at(a - 1)))
+            --a;
+        while (b < text.size() && inWord(text.at(b)))
+            ++b;
+        word = text.mid(a, b - a);
+    }
+    QString core;
+    if (!isSingleWord(word, &core))
+        return;
+    m_infoWord = core;
+    m_infoContext = QStringLiteral("input");
+    m_infoEnglish = block.isValid() && detectLanguage(block.text()) != QLatin1String("de");
+    m_infoModelWords.clear();
+    m_infoModelError.clear();
+    // the model's other words for an English word of the input: those the paraphrasing model would choose
+    AltJob job;
+    QString jobError;
+    bool ok = false;
+    if (m_infoEnglish && place.word >= 0 && !m_busy) {
+        const QString modelId = m_tool->chosenModel(QStringLiteral("corrector"));
+        job.engine = modelId.isEmpty() ? nullptr : m_tool->engine(&jobError);
+        jobError = modelId.isEmpty() ? tr("no proofreading model downloaded") : jobError;
+        if (job.engine) {
+            jobError = m_tool->loadProblem(QStringLiteral("corrector"), modelId);
+            ok = jobError.isEmpty();
+            job.slot = QStringLiteral("corrector");
+            job.files = m_tool->store()->files(modelId);
+            job.threads = m_tool->threads();
+            job.source = job.current = toPlainQuotes(place.sentence);
+            job.word = place.word;
+            if (chatModel(modelId))
+                job.options.system = systemFor(QStringLiteral("paraphrase"));
+            else
+                job.options.prefix = kParaphrase;
+            job.options.banDashes = m_tool->rules().noEmDash;
+        }
+    }
+    requestInfoModelWords(job, ok, jobError, place.wordText);
+}
+
+void Panel::requestInfoModelWords(const AltJob &job, bool ok, const QString &jobError, const QString &word)
+{
+    const int request = ++m_infoRequest;
+    m_infoPending = ok;
+    m_infoModelError = ok ? QString() : jobError;
+    fillInfo();
+    if (!ok)
+        return;
+    QPointer<Panel> self(this);
+    QThread *t = QThread::create([self, job, request, word] {
+        QString error;
+        const QList<Alternative> found = runAltJob(job, &error);
+        QMetaObject::invokeMethod(qApp, [self, found, error, request, word] {
+            if (!self || request != self->m_infoRequest)
+                return;
+            self->m_tool->touchEngine();
+            self->m_infoPending = false;
+            self->m_infoModelError = error;
+            for (const Alternative &a : self->filterAlternatives(found, word)) {
+                const QString w = a.word.trimmed().remove(QRegularExpression(QStringLiteral("[.,;:!?\"“”]+$")));
+                if (!w.isEmpty() && !self->m_infoModelWords.contains(w))
+                    self->m_infoModelWords << w;
+            }
+            self->fillInfo();
+        }, Qt::QueuedConnection);
+    });
+    connect(t, &QThread::finished, t, &QObject::deleteLater);
+    t->start();
+}
+
+void Panel::fillInfo()
+{
+    const QString w = m_infoWord;
+    QString html = QStringLiteral("<p><b>%1</b>").arg(w.toHtmlEscaped());
+    if (!m_infoEnglish) {
+        html += tr(" (German): spelling suggestions and similar words are given for English words.") + QStringLiteral("</p>");
+        m_info->setHtml(html);
+        return;
+    }
+    QString base;
+    const QList<Similar> similar = similarWords(w, &base);
+    if (!base.isEmpty() && base != w.toLower())
+        html += tr(" (from “%1”)").arg(base.toHtmlEscaped());
+    html += QStringLiteral("</p>");
+    if (knownWord(w)) {
+        html += QStringLiteral("<p>") + tr("Spelling: correct.") + QStringLiteral("</p>");
+    } else {
+        const QStringList sp = spellingSuggestions(w, 10);
+        html += QStringLiteral("<p>") + (sp.isEmpty() ? tr("Spelling: not in the dictionary, and no word near it is.")
+                                                      : tr("Spelling: not in the dictionary. Did you mean %1?")
+                                                            .arg(sp.join(QStringLiteral(", ")).toHtmlEscaped()))
+                + QStringLiteral("</p>");
+    }
+    if (similar.isEmpty())
+        html += QStringLiteral("<p>") + tr("Similar words: none known.") + QStringLiteral("</p>");
+    for (const Similar &s : similar)
+        html += QStringLiteral("<p>") + tr("Similar (%1): %2").arg(s.pos, s.words.join(QStringLiteral(", ")).toHtmlEscaped())
+                + QStringLiteral("</p>");
+    if (m_infoPending)
+        html += QStringLiteral("<p><i>") + tr("Asking the model for other words...") + QStringLiteral("</i></p>");
+    else if (!m_infoModelWords.isEmpty())
+        html += QStringLiteral("<p>") + tr("The model's other words here: %1").arg(m_infoModelWords.join(QStringLiteral(", ")).toHtmlEscaped())
+                + QStringLiteral("</p>");
+    else if (!m_infoModelError.isEmpty())
+        html += QStringLiteral("<p><i>") + tr("The model's other words: %1").arg(m_infoModelError.toHtmlEscaped()) + QStringLiteral("</i></p>");
+    m_info->setHtml(html);
 }
 
 void Panel::takeFromEditor()

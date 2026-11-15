@@ -10,7 +10,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(QuillbinderTranslationAddon LANGUAGES CXX)
 
-set(TP_VERSION "1.0")
+set(TP_VERSION "1.1")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -58,8 +58,8 @@ find_library(TP_CPUF_LIB NAMES libcpu_features.a PATHS ${TP_DEPS_DIR}/lib ${TP_D
 find_package(OpenMP REQUIRED COMPONENTS CXX)
 find_package(Threads REQUIRED)
 if(TP_CT2_INCLUDE AND TP_SPM_INCLUDE AND TP_CT2_LIB AND TP_DNNL_LIB AND TP_SPM_LIB)
-  add_library(qb-tp-engine MODULE src/engine/Engine.cpp src/EngineApi.h)
-  target_include_directories(qb-tp-engine PRIVATE src)
+  add_library(qb-tp-engine MODULE src/engine/Engine.cpp src/engine/Bpe.cpp src/engine/Bpe.h src/EngineApi.h)
+  target_include_directories(qb-tp-engine PRIVATE src src/engine)
   target_include_directories(qb-tp-engine SYSTEM PRIVATE ${TP_CT2_INCLUDE} ${TP_SPM_INCLUDE})
   set(_cpuf "")
   if(TP_CPUF_LIB)
@@ -95,8 +95,10 @@ configure_file(resources/icons/translation-proofreading.svg ${CMAKE_BINARY_DIR}/
 if(TP_TEST_SWITCHES)
   enable_testing()
   find_package(Qt6 REQUIRED COMPONENTS Test)
-  add_executable(tp_logic_tests tests/logic_tests.cpp src/Logic.cpp src/Logic.h resources/translation-proofreading.qrc)
-  target_include_directories(tp_logic_tests PRIVATE src)
+  # the text logic and the chat models' tokenizer (Qt Core only)
+  add_executable(tp_logic_tests tests/logic_tests.cpp src/Logic.cpp src/Logic.h src/engine/Bpe.cpp src/engine/Bpe.h
+    resources/translation-proofreading.qrc)
+  target_include_directories(tp_logic_tests PRIVATE src src/engine)
   target_link_libraries(tp_logic_tests PRIVATE Qt6::Core Qt6::Test)
   add_test(NAME logic COMMAND tp_logic_tests)
 

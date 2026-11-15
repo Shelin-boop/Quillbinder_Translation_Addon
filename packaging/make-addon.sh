@@ -46,6 +46,7 @@ L=$A/licenses
 cp "$ROOT/LICENSE" "$L/translation-proofreading-Apache-2.0.txt"
 cp "$ROOT/NOTICE" "$L/translation-proofreading-NOTICE.txt"
 cp "$ROOT/resources/us-spelling-LICENSE.txt" "$L/SCOWL-american-spellings.txt"
+cp "$ROOT/resources/en-thesaurus-LICENSE.txt" "$L/WordNet-3.0.txt"
 cp "$DEPS/CTranslate2/LICENSE" "$L/CTranslate2-MIT.txt"
 cp "$DEPS/CTranslate2/third_party/cpu_features/LICENSE" "$L/cpu_features-Apache-2.0.txt"
 cp "$DEPS/CTranslate2/third_party/spdlog/LICENSE" "$L/spdlog-MIT.txt"
@@ -70,7 +71,9 @@ plugins/libqb-translation-proofreading.so, translation-proofreading/libqb-tp-eng
     Apache License 2.0 (translation-proofreading-Apache-2.0.txt, translation-proofreading-NOTICE.txt).
     Source: https://github.com/Shelin-boop/Quillbinder_Translation_Addon
     Built into the tool library: the American spellings made from SCOWL by Kevin Atkinson
-    (SCOWL-american-spellings.txt) and the add-on's icon (drawn for it, Apache License 2.0).
+    (SCOWL-american-spellings.txt), the words of a similar meaning made from Princeton WordNet 3.0
+    (WordNet-3.0.txt), and the add-on's icon (drawn for it, Apache License 2.0).
+    The engine also holds the tokenizer of the Qwen models (src/engine/Bpe.cpp, the add-on's own code).
 
 Linked into libqb-tp-engine.so (static libraries, built by packaging/build-deps.sh of the source):
     CTranslate2 4.9.0 (github.com/OpenNMT/CTranslate2): MIT (CTranslate2-MIT.txt), with cpu_features
@@ -82,20 +85,22 @@ Linked into libqb-tp-engine.so (static libraries, built by packaging/build-deps.
         (BSD-3-Clause), darts_clone (BSD-2-Clause) and esaxx (MIT).
 
 translation-proofreading/lib/libgomp.so.1
-    GNU OpenMP runtime of GCC 13 (Ubuntu 24.04), unchanged: GPL 3.0 with the GCC Runtime Library Exception
-    (GPL-3.0.txt, GCC-Runtime-Library-Exception-3.1.txt).
-    Source: https://gcc.gnu.org/ (Ubuntu package source: gcc-13).
+    GNU OpenMP runtime of GCC 14 (Ubuntu 24.04's package libgomp1), unchanged: GPL 3.0 with the GCC Runtime
+    Library Exception (GPL-3.0.txt, GCC-Runtime-Library-Exception-3.1.txt).
+    Source: https://gcc.gnu.org/ (Ubuntu source package: gcc-14).
 
 translation-proofreading/qtplugins/tls/libqopensslbackend.so
     Qt's TLS plugin for OpenSSL (Qt Network $QT_VERSION), The Qt Company's own build for Linux, unchanged, for
     the download of a model over https; it uses the system's OpenSSL 3. GNU LGPL 3.0 (LGPL-3.0.txt, which refers
     to GPL-3.0.txt). Source: https://download.qt.io/official_releases/qt/ (qtbase of that version).
 
-The models are not part of the add-on: it downloads the one the writer chooses, from the release
-"models-1" of the add-on's repository, under their own licenses (each model's MODEL-LICENSE.txt):
+The models are not part of the add-on: it downloads the ones the writer chooses, from the releases
+"models-1" and "models-2" of the add-on's repository, under their own licenses (each model's MODEL-LICENSE.txt):
     CoEdIT Large (Grammarly): CC BY-NC 4.0, non-commercial use only.
     CoEdIT Base (J. Bochi): Apache-2.0.
     OPUS-MT German to English (University of Helsinki): Apache-2.0.
+    Qwen3 1.7B and Qwen3 4B (Qwen team, Alibaba Cloud): Apache-2.0.
+    OPUS-MT Big, German to English (University of Helsinki): CC BY 4.0.
 TEXT
 
 mkdir -p "$OUT"

@@ -5,9 +5,11 @@
 #include "EngineApi.h"
 #include "Logic.h"
 
+#include <QHash>
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QTextBrowser>
+#include <QTimer>
 #include <QWidget>
 
 #include <atomic>
@@ -47,11 +49,12 @@ public:
 protected:
     void contextMenuEvent(QContextMenuEvent *e) override;
     void keyPressEvent(QKeyEvent *e) override;
+    void mouseDoubleClickEvent(QMouseEvent *e) override;   // 1.1: the word goes into the information area
 private:
     tp::Panel *m_panel;
 };
 
-// The result: read only; a click on a word opens its menu.
+// The result: read only; a click on a word opens its menu, a double click (1.1) shows it in the information area.
 class OutputView : public QTextBrowser
 {
     Q_OBJECT
@@ -60,13 +63,20 @@ public:
     int charAt(const QPoint &viewportPos) const;   // the document position of the character there, -1: none
 signals:
     void wordClicked(int position, const QPoint &globalPos);
+    void wordDoubleClicked(int position);
+    void linkClicked(const QString &href);          // a word of the suggestions under a single word (1.1)
     void contextRequested(const QPoint &globalPos);
 protected:
     void mousePressEvent(QMouseEvent *e) override;
     void mouseReleaseEvent(QMouseEvent *e) override;
+    void mouseDoubleClickEvent(QMouseEvent *e) override;
     void contextMenuEvent(QContextMenuEvent *e) override;
 private:
     QPoint m_pressPos;
+    // a click waits for the double-click time: a double click is no click (its menu would cover the word)
+    QTimer m_clickTimer;
+    int m_clickPos = -1;
+    QPoint m_clickGlobal;
 };
 
 class Panel : public QWidget
@@ -77,7 +87,7 @@ public:
     Panel(TranslateTool *tool, Place place, QWidget *parent);
     ~Panel() override;
 
-    void setInput(const QString &text);
+    void setInput(const QString &text);   // (does not start live work: a run follows when wanted)
     QString inputText() const;
     QString resultText() const;        // the result as the writer has decided (what Copy and Into Editor give)
     bool isBusy() const { return m_busy; }
@@ -108,6 +118,31 @@ public:
     QList<Alternative> inputAlternatives(const InputPlace &place, QString *error);
     void chooseInputAlternative(const InputPlace &place, const Alternative &a);
 
+    // ---- 1.1
+    // live work: about a second after the writer stops typing, the changed sentences are worked on again
+    bool isLive() const;
+    void setLive(bool on);
+    QToolButton *liveButton() const { return m_live; }
+    // the information area: a double click on a word of the input or the result shows its spelling suggestions,
+    // words of a similar meaning and the model's other words
+    QTextBrowser *info() const { return m_info; }
+    void showInfoForOutput(int position);
+    void showInfoForInput(int position);
+    bool infoPending() const { return m_infoPending; }
+    // a single word in the input: the word as it should be, and below it every suggestion for it
+    struct SingleWord {
+        bool on = false;
+        QString word;           // as typed
+        QString result;         // as it should be
+        QStringList spelling;   // when it is misspelled
+        QString base;           // the form the similar words are for ("walk" for "walked")
+        QList<Similar> similar;
+        QStringList modelWords; // the model's other words (they come a moment later)
+        bool modelPending = false;
+    };
+    const SingleWord &singleWord() const { return m_single; }
+    int cachedSentences() const { return int(m_cache.size()); }
+
 public slots:
     void run();
     void stop();
@@ -132,12 +167,22 @@ private:
     };
     QString currentTask() const;          // "auto", "proofread", "translate"
     QString stylePrefix() const;
+    // 1.1: what a chat model is told: "correct", "formal", "paraphrase" or "translate"
+    static QString systemFor(const QString &what);
+    bool chatModel(const QString &modelId) const;
+    void runNow(bool live);
+    void liveTyped();
+    void finishSingle();
+    void requestSingleModelWords();
+    void fillInfo();
+    void requestInfoModelWords(const AltJob &job, bool ok, const QString &jobError, const QString &word);
     void buildInspectorLayout();
     void buildWindowLayout();
     void updateModelBox();
     void setBusy(bool busy);
     void setStatus(const QString &text);
     void finishRun(const QStringList &results, const QString &error, double seconds, bool stopped);
+    void linkClicked(const QString &href);
     void render();
     QString unitText(int unit) const;
     void outputClicked(int position, const QPoint &globalPos);
@@ -158,6 +203,8 @@ private:
     QLabel *m_status = nullptr, *m_notes = nullptr;
     QProgressBar *m_progress = nullptr;
     QSplitter *m_split = nullptr;
+    QTextBrowser *m_info = nullptr;
+    QToolButton *m_live = nullptr;
 
     QString m_lang = QStringLiteral("en");
     QString m_styleId;
@@ -169,6 +216,24 @@ private:
     QPointer<QMenu> m_wordMenu;
     int m_request = 0;   // the latest alternatives request (older answers are dropped)
     bool m_sized = false;
+
+    // 1.1
+    QTimer m_liveTimer;
+    bool m_rerun = false;           // the writer typed on while a run was busy: run again when it ends
+    bool m_liveRun = false;         // the run was started by typing (no "There is no text" message)
+    QList<int> m_sent;              // the units given to the model in this run (the others came from the cache)
+    QHash<QString, QString> m_cache;   // what the model wrote for a text, by model, instruction and text
+    QString m_runKey;               // model and instruction of this run, for the cache
+    SingleWord m_single;
+    int m_singleRequest = 0;
+    // the information area's word
+    QString m_infoWord;
+    QString m_infoContext;          // "input" or "output", and whether the word is English
+    bool m_infoEnglish = true;
+    QStringList m_infoModelWords;
+    QString m_infoModelError;
+    bool m_infoPending = false;
+    int m_infoRequest = 0;
 };
 
 } // namespace tp

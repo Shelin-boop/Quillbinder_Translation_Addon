@@ -1,7 +1,9 @@
 // Checks of the add-on with the engine and real models, in a stand-in for Quillbinder (FakeHost): the options
 // (download with checksums, a damaged file, the license question), the panel in the inspector and in the window,
-// proofreading, translation, keeping an original, other words on both sides, the editor, the rules. Screenshots go
-// into TP_SHOTS (default: build/screenshots).
+// proofreading, translation, keeping an original, other words on both sides, the editor, the rules; 1.1: the memory
+// guard, a file in parts, dialogue kept as written, live work while typing, a single word, the information area, the
+// chat models and the larger translator (when their files are in TP_MODELS_DIR). Screenshots go into TP_SHOTS
+// (default: build/screenshots).
 //
 // Needs the models' files in a folder (the release files, "<id>--<name>"): TP_MODELS_DIR. Without it the checks
 // that need a model are skipped.
@@ -21,6 +23,11 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTextDocument>
+#include <QCryptographicHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QThread>
 #include <QtTest>
 
 using namespace tp;
@@ -47,6 +54,12 @@ const QString kClean = QStringLiteral(
     "Night. The harbor lay still, and the boats knocked against the pier like impatient guests.\n"
     "Jonas didn’t answer. He never did, not when it mattered.\n"
     "“Come on,” she whispered. “Before they wake up.”");
+
+// dialogue of the kind the writer tried on 2026-11-15 (our own sentences): quotation marks inside and at the end
+const QString kDialogue = QStringLiteral(
+    "“You’re  tired?”\n“Hmm...”\n“What’s ‘hmm’?”\n“Yes. I’m tired.”\n"
+    "She turned to him. There was not much to loose.\n"
+    "“Well that’s easy. First you need a river. Then if would help if it could even talk.”");
 
 const QString kGerman = QStringLiteral(
     "Der Regen hatte seit drei Tagen nicht aufgehört, und Mara verlor langsam die Geduld. Sie ging zum Fenster "
@@ -92,6 +105,8 @@ private slots:
         qputenv("QB_TP_MODEL_SOURCE", m_models.toUtf8());
         qputenv("QB_TP_ACCEPT_LICENSES", "1");
         m_host = new FakeHost(QStringLiteral(TP_BUILD_DIR "/addon/translation-proofreading"), m_data.path());
+        // live work only in its own check (it would start runs in the middle of the others)
+        m_host->settings.insert(QStringLiteral("translation-proofreading/live"), false);
         m_tool = new TranslateTool;
         m_tool->setHost(m_host);
         QCoreApplication::processEvents();
@@ -401,6 +416,282 @@ private slots:
         QVERIFY(runPanel(&p));
         qInfo("formal: %s", qPrintable(p.resultText()));
         QVERIFY(p.resultText().contains(QStringLiteral("do not")));
+    }
+
+    // ---- 1.1
+
+    void memoryGuard()
+    {
+        // a computer with 4 GB, 3 GB of it free: the 4B model is never offered, the 1.7B one not loaded now
+        qputenv("TP_TEST_MEMINFO_MB", "4096,3000");
+        const QString big = m_tool->store()->downloadProblem(QStringLiteral("qwen3-4b"));
+        QVERIFY2(big.contains(QStringLiteral("too little")), qPrintable(big));
+        QVERIFY(m_tool->store()->downloadProblem(QStringLiteral("qwen3-1.7b")).isEmpty());
+        const QString load = m_tool->loadProblem(QStringLiteral("corrector"), QStringLiteral("qwen3-1.7b"));
+        QVERIFY2(load.contains(QStringLiteral("free memory")), qPrintable(load));
+        QVERIFY(m_tool->loadProblem(QStringLiteral("corrector"), QStringLiteral("coedit-base")).isEmpty());
+        // the options show it: no download button for the 4B model
+        QWidget parent;
+        OptionsPage page(m_tool, &parent);
+        auto *dl = page.widget()->findChild<QAbstractButton *>(QStringLiteral("tpDownload:qwen3-4b"));
+        QVERIFY(dl && !dl->isEnabled());
+        auto *state = page.widget()->findChild<QLabel *>(QStringLiteral("tpState:qwen3-4b"));
+        QVERIFY(state && state->text().contains(QStringLiteral("too little")));
+        parent.resize(760, 1500);
+        parent.show();
+        QCoreApplication::processEvents();
+        shot(&parent, QStringLiteral("options-memory-guard"));
+        // a larger computer: everything may come
+        qputenv("TP_TEST_MEMINFO_MB", "16384,12000");
+        QVERIFY(m_tool->store()->downloadProblem(QStringLiteral("qwen3-4b")).isEmpty());
+        QVERIFY(m_tool->loadProblem(QStringLiteral("corrector"), QStringLiteral("qwen3-4b")).isEmpty());
+        qunsetenv("TP_TEST_MEMINFO_MB");
+        // one core is left free unless the writer chose otherwise
+        QCOMPARE(m_tool->threads(), qMax(1, QThread::idealThreadCount() - 1));
+    }
+
+    void fileInParts()
+    {
+        // a model whose file comes in three parts: joined after each part is checked, the whole checked again
+        QTemporaryDir src, data;
+        QByteArray whole;
+        for (int i = 0; i < 3000; ++i)
+            whole += QByteArray::number(i) + ' ';
+        const QList<QByteArray> parts = {whole.left(5000), whole.mid(5000, 5000), whole.mid(10000)};
+        auto sha = [](const QByteArray &b) { return QString::fromLatin1(QCryptographicHash::hash(b, QCryptographicHash::Sha256).toHex()); };
+        QJsonArray partList;
+        for (int i = 0; i < parts.size(); ++i) {
+            const QString asset = QStringLiteral("split--model.bin.part%1").arg(i + 1);
+            QFile f(src.path() + QLatin1Char('/') + asset);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(parts.at(i));
+            partList << QJsonObject{{QStringLiteral("asset"), asset}, {QStringLiteral("size"), parts.at(i).size()},
+                                    {QStringLiteral("sha256"), sha(parts.at(i))}};
+        }
+        QFile cfg(src.path() + QStringLiteral("/split--config.json"));
+        QVERIFY(cfg.open(QIODevice::WriteOnly));
+        cfg.write("{}");
+        cfg.close();
+        const QJsonObject model{{QStringLiteral("id"), QStringLiteral("split")}, {QStringLiteral("kinds"), QJsonArray{QStringLiteral("corrector")}},
+                                {QStringLiteral("title"), QStringLiteral("Split")}, {QStringLiteral("release"), QStringLiteral("test")},
+                                {QStringLiteral("memoryMB"), 10},
+                                {QStringLiteral("files"), QJsonArray{
+                                     QJsonObject{{QStringLiteral("name"), QStringLiteral("config.json")}, {QStringLiteral("asset"), QStringLiteral("split--config.json")},
+                                                 {QStringLiteral("size"), 2}, {QStringLiteral("sha256"), sha("{}")}},
+                                     QJsonObject{{QStringLiteral("name"), QStringLiteral("model.bin")}, {QStringLiteral("asset"), QString()},
+                                                 {QStringLiteral("size"), whole.size()}, {QStringLiteral("sha256"), sha(whole)},
+                                                 {QStringLiteral("parts"), partList}}}}};
+        QFile cat(data.path() + QStringLiteral("/catalog.json"));
+        QVERIFY(cat.open(QIODevice::WriteOnly));
+        cat.write(QJsonDocument(QJsonObject{{QStringLiteral("format"), 2}, {QStringLiteral("models"), QJsonArray{model}}}).toJson());
+        cat.close();
+        qputenv("TP_TEST_CATALOG", cat.fileName().toUtf8());
+        const QByteArray oldSource = qgetenv("QB_TP_MODEL_SOURCE");
+        qputenv("QB_TP_MODEL_SOURCE", src.path().toUtf8());
+        ModelStore store;
+        store.setDataDir(data.path());
+        QSignalSpy finished(&store, &ModelStore::finished);
+        store.download(QStringLiteral("split"));
+        QVERIFY(finished.count() > 0 || finished.wait(30000));
+        QVERIFY2(finished.last().at(1).toBool(), qPrintable(finished.last().at(2).toString()));
+        QVERIFY(store.isInstalled(QStringLiteral("split")));
+        QFile joined(data.path() + QStringLiteral("/models/split/model.bin"));
+        QVERIFY(joined.open(QIODevice::ReadOnly));
+        QCOMPARE(joined.readAll(), whole);
+        QVERIFY(!QFileInfo::exists(data.path() + QStringLiteral("/models/split/model.bin.part1")));
+        // a wrong part: refused, nothing installed
+        store.remove(QStringLiteral("split"));
+        QFile bad(src.path() + QStringLiteral("/split--model.bin.part2"));
+        QVERIFY(bad.open(QIODevice::WriteOnly));
+        bad.write(QByteArray(parts.at(1).size(), 'x'));
+        bad.close();
+        store.download(QStringLiteral("split"));
+        QVERIFY(finished.wait(30000));
+        QCOMPARE(finished.last().at(1).toBool(), false);
+        QVERIFY(finished.last().at(2).toString().contains(QStringLiteral("checksum")));
+        QVERIFY(!store.isInstalled(QStringLiteral("split")));
+        qunsetenv("TP_TEST_CATALOG");
+        qputenv("QB_TP_MODEL_SOURCE", oldSource);
+    }
+
+    void dialogueKept()
+    {
+        if (!haveModels())
+            QSKIP("TP_MODELS_DIR not set");
+        Panel p(m_tool, Panel::Place::Inspector, nullptr);
+        p.resize(380, 800);
+        p.setInput(kDialogue);
+        QVERIFY(runPanel(&p));
+        const QString r = p.resultText();
+        qInfo("dialogue:\n%s", qPrintable(r));
+        // every quotation mark where it was
+        for (QChar q : {QChar(0x201c), QChar(0x201d), QChar(0x2018)})
+            QCOMPARE(r.count(q), kDialogue.count(q));
+        for (const char *line : {"“What’s ‘hmm’?”", "“Yes. I’m tired.”", "not much to lose."})
+            QVERIFY2(r.contains(QString::fromUtf8(line)), line);
+        QVERIFY(!r.contains(QStringLiteral(" ,")));
+        shot(&p, QStringLiteral("inspector-dialogue"));
+    }
+
+    void singleWord()
+    {
+        Panel p(m_tool, Panel::Place::Inspector, nullptr);
+        p.resize(380, 800);
+        p.show();
+        p.setInput(QStringLiteral("beautifull"));
+        QVERIFY(runPanel(&p));
+        QCOMPARE(p.resultText(), QStringLiteral("beautiful"));
+        const Panel::SingleWord &w = p.singleWord();
+        QVERIFY(w.on);
+        QVERIFY(w.spelling.contains(QStringLiteral("beautiful")));
+        QVERIFY(!w.similar.isEmpty());
+        const QString shown = p.output()->toPlainText();
+        QVERIFY2(shown.contains(QStringLiteral("Spelling:")) && shown.contains(QStringLiteral("Similar (adjective)")), qPrintable(shown));
+        QVERIFY(p.status().contains(QStringLiteral("nearest")));
+        // the model's other words come a moment later, when a model is there
+        if (haveModels())
+            QTRY_VERIFY_WITH_TIMEOUT(!p.singleWord().modelPending, 120000);
+        QCoreApplication::processEvents();
+        shot(&p, QStringLiteral("inspector-single-word"));
+        // a click on a suggestion makes it the result
+        QTextDocument *doc = p.output()->document();
+        const int pos = positionOf(doc, QStringLiteral("handsome"));
+        QVERIFY(pos > 0);
+        QTextCursor c(doc);
+        c.setPosition(pos + 2);
+        const QPoint at = p.output()->cursorRect(c).center();
+        QTest::mouseClick(p.output()->viewport(), Qt::LeftButton, {}, at);
+        QTRY_COMPARE(p.resultText(), QStringLiteral("handsome"));
+        // a word spelled right: kept, with its similar words
+        p.setInput(QStringLiteral("walked"));
+        QVERIFY(runPanel(&p));
+        QCOMPARE(p.resultText(), QStringLiteral("walked"));
+        QCOMPARE(p.singleWord().base, QStringLiteral("walk"));
+        QVERIFY(p.status().contains(QStringLiteral("spelled correctly")));
+    }
+
+    void infoArea()
+    {
+        Panel p(m_tool, Panel::Place::Inspector, nullptr);
+        p.resize(380, 900);
+        p.show();
+        p.setInput(QStringLiteral("She walked to the window and looked at the streets bellow."));
+        QVERIFY(p.info()->toPlainText().isEmpty());
+        // a double click on a word of the input
+        const int pos = p.inputText().indexOf(QStringLiteral("bellow")) + 2;
+        QTextCursor c(p.input()->document());
+        c.setPosition(pos);
+        QTest::mouseDClick(p.input()->viewport(), Qt::LeftButton, {}, p.input()->cursorRect(c).center());
+        QTRY_VERIFY(p.info()->toPlainText().contains(QStringLiteral("bellow")));
+        const QString info = p.info()->toPlainText();
+        qInfo("info:\n%s", qPrintable(info));
+        QVERIFY(info.contains(QStringLiteral("Spelling: correct")));   // "bellow" is a word (to roar)
+        QVERIFY(info.contains(QStringLiteral("Similar (verb)")));
+        if (haveModels()) {
+            QTRY_VERIFY_WITH_TIMEOUT(!p.infoPending(), 120000);
+            QVERIFY(p.info()->toPlainText().contains(QStringLiteral("other words")));
+            // and in the result: a double click is no click (no menu)
+            QVERIFY(runPanel(&p));
+            QTextDocument *doc = p.output()->document();
+            const int o = positionOf(doc, QStringLiteral("window"));
+            QTextCursor oc(doc);
+            oc.setPosition(o + 2);
+            QTest::mouseDClick(p.output()->viewport(), Qt::LeftButton, {}, p.output()->cursorRect(oc).center());
+            QTRY_VERIFY(p.info()->toPlainText().startsWith(QStringLiteral("window")));
+            QTest::qWait(QApplication::doubleClickInterval() + 200);
+            QVERIFY(!p.findChild<QMenu *>(QStringLiteral("tpWordMenu")));
+            QTRY_VERIFY_WITH_TIMEOUT(!p.infoPending(), 120000);
+        }
+        QCoreApplication::processEvents();
+        shot(&p, QStringLiteral("inspector-info"));
+    }
+
+    void liveTyping()
+    {
+        if (!haveModels())
+            QSKIP("TP_MODELS_DIR not set");
+        Panel p(m_tool, Panel::Place::Inspector, nullptr);
+        p.resize(380, 800);
+        p.show();
+        p.setLive(true);
+        QVERIFY(p.isLive());
+        QSignalSpy done(&p, &Panel::finished);
+        p.input()->setFocus();
+        p.input()->setPlainText(QStringLiteral("There was nothing to loose. She waited."));
+        // about a second after the last change, without a click
+        QVERIFY(done.wait(120000));
+        QTRY_VERIFY_WITH_TIMEOUT(!p.isBusy(), 120000);
+        QVERIFY2(p.resultText().contains(QStringLiteral("to lose")), qPrintable(p.resultText()));
+        const int cached = p.cachedSentences();
+        QVERIFY(cached >= 2);
+        // typing on: only the changed sentence goes to the model again
+        QTextCursor c(p.input()->document());
+        c.movePosition(QTextCursor::End);
+        p.input()->setTextCursor(c);
+        QTest::keyClicks(p.input(), QStringLiteral(" He dont come."));
+        QVERIFY(done.wait(120000));
+        QTRY_VERIFY_WITH_TIMEOUT(!p.isBusy(), 120000);
+        QCOMPARE(p.cachedSentences(), cached + 1);
+        QVERIFY2(p.resultText().contains(QStringLiteral("to lose")), qPrintable(p.resultText()));
+        shot(&p, QStringLiteral("inspector-live"));
+        p.setLive(false);
+        m_host->settings.insert(QStringLiteral("translation-proofreading/live"), false);
+    }
+
+    void chatModels()
+    {
+        // the Qwen model and the larger translator, when their files are there (the checks of the workflow have them)
+        if (!haveModels() || !QFileInfo::exists(m_models + QStringLiteral("/qwen3-1.7b--model.bin")))
+            QSKIP("no qwen3-1.7b in TP_MODELS_DIR");
+        QSignalSpy finished(m_tool->store(), &ModelStore::finished);
+        m_tool->store()->download(QStringLiteral("qwen3-1.7b"));
+        QVERIFY(finished.wait(600000));
+        QVERIFY2(finished.last().at(1).toBool(), qPrintable(finished.last().at(2).toString()));
+        m_host->settings.insert(QStringLiteral("translation-proofreading/corrector"), QStringLiteral("qwen3-1.7b"));
+        m_host->settings.insert(QStringLiteral("translation-proofreading/translator"), QStringLiteral("qwen3-1.7b"));
+        Panel p(m_tool, Panel::Place::Inspector, nullptr);
+        p.resize(380, 800);
+        p.setInput(QStringLiteral("“You ever been to the sea?” she asked. There was not much to loose. He don't know where the keys is."));
+        QElapsedTimer t;
+        t.start();
+        QVERIFY(runPanel(&p));
+        qInfo("qwen3-1.7b proofreading (%.1f s):\n%s\nstatus: %s", t.elapsed() / 1000.0, qPrintable(p.resultText()),
+              qPrintable(p.status()));
+        QVERIFY2(p.resultText().contains(QStringLiteral("to lose")), qPrintable(p.resultText()));
+        QVERIFY(p.resultText().startsWith(QStringLiteral("“You ever been to the sea?”")));
+        // the same model translates, loaded once for both
+        p.setInput(QStringLiteral("Der Regen hatte seit drei Tagen nicht aufgehört."));
+        t.restart();
+        QVERIFY(runPanel(&p));
+        qInfo("qwen3-1.7b translation (%.1f s): %s", t.elapsed() / 1000.0, qPrintable(p.resultText()));
+        QVERIFY(p.resultText().contains(QStringLiteral("rain"), Qt::CaseInsensitive));
+        QString error;
+        EngineInterface *e = m_tool->engine(&error);
+        QCOMPARE(e->loaded(QStringLiteral("translator")), QStringLiteral("qwen3-1.7b"));
+        // other words from a chat model
+        const int pos = positionOf(p.output()->document(), QStringLiteral("rain"));
+        const Panel::WordInfo w = p.wordAt(qMax(0, pos));
+        const QList<Alternative> alts = p.outputAlternatives(w.unit, w.word, &error);
+        qInfo("qwen alternatives for \"%s\":", qPrintable(w.text));
+        for (const Alternative &a : alts)
+            qInfo("  %s | %s", qPrintable(a.word), qPrintable(a.sentence));
+        QVERIFY2(!alts.isEmpty(), qPrintable(error));
+        shot(&p, QStringLiteral("inspector-qwen"));
+        if (QFileInfo::exists(m_models + QStringLiteral("/opus-mt-big-de-en--model.bin"))) {
+            m_tool->store()->download(QStringLiteral("opus-mt-big-de-en"));
+            QVERIFY(finished.wait(300000));
+            QVERIFY2(finished.last().at(1).toBool(), qPrintable(finished.last().at(2).toString()));
+            m_host->settings.insert(QStringLiteral("translation-proofreading/translator"), QStringLiteral("opus-mt-big-de-en"));
+            p.setInput(kGerman);
+            t.restart();
+            QVERIFY(runPanel(&p));
+            qInfo("opus-mt-big-de-en (%.1f s):\n%s", t.elapsed() / 1000.0, qPrintable(p.resultText()));
+            QVERIFY(p.resultText().contains(QStringLiteral("rain")));
+            QVERIFY(p.resultText().contains(QStringLiteral("brother")));
+        }
+        // back to the models of the other checks
+        m_host->settings.insert(QStringLiteral("translation-proofreading/corrector"), QStringLiteral("coedit-large"));
+        m_host->settings.insert(QStringLiteral("translation-proofreading/translator"), QStringLiteral("opus-mt-de-en"));
     }
 
     void window()

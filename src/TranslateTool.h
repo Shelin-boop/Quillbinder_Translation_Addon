@@ -56,7 +56,10 @@ public:
     QVariant setting(const QString &key, const QVariant &def = QVariant()) const;
     void setSetting(const QString &key, const QVariant &value);
     Rules rules() const;
-    int threads() const;
+    int threads() const;           // 1.1: one core is left free by default
+    // 1.1: why the model cannot be loaded into the slot now (too little free memory), or empty
+    QString loadProblem(const QString &slot, const QString &modelId);
+    static void lowerPriority();   // the calling thread (and the threads it starts) at a low priority
     QString chosenModel(const QString &kind) const;   // the chosen model of the kind, if it is installed
     // The engine (loaded on first use); null with *error when it cannot be loaded.
     EngineInterface *engine(QString *error);

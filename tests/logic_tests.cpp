@@ -1,7 +1,16 @@
-// Checks of the text work without models: language, sentences, rules, safety checks, the word comparison.
+// Checks of the text work without models: language, sentences, rules, safety checks, the word comparison; 1.1: dialogue
+// kept as written, spelling suggestions, similar words, single words, and the chat models' tokenizer against the
+// pieces of the model's own tokenizer (tokenizer-check.json of each chat model in TP_MODELS_DIR).
+#include "Bpe.h"
 #include "Logic.h"
 
+#include <QDir>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+
 #include <QtTest>
+#include <QFileInfo>
 
 using namespace tp;
 
@@ -121,6 +130,134 @@ private slots:
         s = compareWords(QStringLiteral("a b c"), QStringLiteral("a c"));
         QCOMPARE(s.size(), 3);
         QVERIFY(s.at(1).changed && s.at(1).after.isEmpty());
+    }
+
+    // 1.1: what the model did to dialogue in the writer's test of 2026-11-15 (our own sentences of the same kind)
+    void dialogue()
+    {
+        // a quotation mark turned, one moved before the question mark, a closing one dropped, a lone one added
+        QCOMPARE(keepDialogue(QStringLiteral("“Who’s ‘hmm’?”"), QStringLiteral("\"Who's 'hmm?'?")),
+                 QStringLiteral("“Who’s ‘hmm’?”"));
+        QCOMPARE(keepDialogue(QStringLiteral("“Fine. I’m tired.”"), QStringLiteral("\"Fine. I'm tired. \"")),
+                 QStringLiteral("“Fine. I’m tired.”"));
+        QCOMPARE(keepDialogue(QStringLiteral("How do I talk to a river?”"), QStringLiteral("How do I talk to a river?")),
+                 QStringLiteral("How do I talk to a river?”"));
+        // a real correction inside dialogue stays, with the writer's quotation marks around it
+        QCOMPARE(keepDialogue(QStringLiteral("“Well that’s easy.”"), QStringLiteral("\"Well, that's easy.\"")),
+                 QStringLiteral("“Well, that’s easy.”"));
+        QCOMPARE(keepDialogue(QStringLiteral("“Then if would help.”"), QStringLiteral("\"Then it would help.\"")),
+                 QStringLiteral("“Then it would help.”"));
+        // a lone comma goes to the word before it
+        QCOMPARE(keepDialogue(QStringLiteral("if it could even talk"), QStringLiteral("if it could even , talk")),
+                 QStringLiteral("if it could even, talk"));
+        // quotation marks the model added go
+        QCOMPARE(keepDialogue(QStringLiteral("He said no."), QStringLiteral("He said \"no.\"")), QStringLiteral("He said no."));
+        // a word left out: its quotation mark goes to its neighbor
+        QCOMPARE(keepDialogue(QStringLiteral("“Very very good.”"), QStringLiteral("\"Very good.\"")),
+                 QStringLiteral("“Very good.”"));
+        QCOMPARE(tidyPunctuation(QStringLiteral("Hello , world ( yes ) !")), QStringLiteral("Hello, world (yes)!"));
+    }
+
+    void spelling()
+    {
+        QVERIFY(knownWord(QStringLiteral("beautiful")));
+        QVERIFY(knownWord(QStringLiteral("Don’t")));
+        QVERIFY(!knownWord(QStringLiteral("beautifull")));
+        const QStringList s = spellingSuggestions(QStringLiteral("beautifull"));
+        QVERIFY2(!s.isEmpty() && s.first() == QLatin1String("beautiful"), qPrintable(s.join(QLatin1Char(','))));
+        const QStringList t = spellingSuggestions(QStringLiteral("Recieve"));
+        QVERIFY2(t.contains(QStringLiteral("Receive")), qPrintable(t.join(QLatin1Char(','))));
+        QVERIFY(spellingSuggestions(QStringLiteral("loose")).contains(QStringLiteral("lose")));
+        QCOMPARE(spellingSuggestions(QStringLiteral("dont")).value(0), QStringLiteral("don't"));
+        QVERIFY(knownWord(QStringLiteral("river’s")));
+        QVERIFY(knownWord(QStringLiteral("isn't")));
+    }
+
+    void similar()
+    {
+        QCOMPARE(baseForms(QStringLiteral("went")).value(0), QStringLiteral("go"));
+        QCOMPARE(baseForms(QStringLiteral("cities")).value(0), QStringLiteral("city"));
+        QVERIFY(baseForms(QStringLiteral("stopped")).contains(QStringLiteral("stop")));
+        QString base;
+        const QList<Similar> b = similarWords(QStringLiteral("beautiful"), &base);
+        QCOMPARE(base, QStringLiteral("beautiful"));
+        QVERIFY(!b.isEmpty() && b.first().pos == QLatin1String("adjective"));
+        QVERIFY2(b.first().words.contains(QStringLiteral("handsome")), qPrintable(b.first().words.join(QLatin1Char(','))));
+        // American spelling: WordNet's "well-favoured" becomes "well-favored"
+        QVERIFY(!b.first().words.contains(QStringLiteral("well-favoured")));
+        QVERIFY(b.first().words.contains(QStringLiteral("well-favored")));
+        const QList<Similar> w = similarWords(QStringLiteral("walked"), &base);
+        QCOMPARE(base, QStringLiteral("walk"));
+        bool verb = false;
+        for (const Similar &x : w)
+            verb = verb || x.pos == QLatin1String("verb");
+        QVERIFY(verb);
+        QVERIFY(similarWords(QStringLiteral("xqzt")).isEmpty());
+    }
+
+    void singleWord()
+    {
+        QString w;
+        QVERIFY(isSingleWord(QStringLiteral("  beautifull  "), &w));
+        QCOMPARE(w, QStringLiteral("beautifull"));
+        QVERIFY(isSingleWord(QStringLiteral("“don’t”"), &w));
+        QCOMPARE(w, QStringLiteral("don’t"));
+        QVERIFY(isSingleWord(QStringLiteral("well-known."), &w));
+        QVERIFY(!isSingleWord(QStringLiteral("two words")));
+        QVERIFY(!isSingleWord(QStringLiteral("42")));
+        QVERIFY(!isSingleWord(QStringLiteral("...")));
+    }
+
+    // the chat models' tokenizer gives the pieces the model's own tokenizer gave (models-2: tokenizer-check.json)
+    void bpeTokenizer()
+    {
+        // without a model: the byte map and the word starts
+        QCOMPARE(BpeTokenizer::byteLevel(QByteArray(" ")), std::string("\xc4\xa0"));
+        QCOMPARE(BpeTokenizer::byteLevel(QStringLiteral("—").toUtf8()), std::string("\xc3\xa2\xc4\xa2\xc4\xb6"));
+        QVERIFY(BpeTokenizer::startsWord("\xc4\xa0word"));
+        QVERIFY(!BpeTokenizer::startsWord("word"));
+        const QString models = qEnvironmentVariable("TP_MODELS_DIR");
+        if (models.isEmpty())
+            QSKIP("TP_MODELS_DIR not set");
+        int checked = 0;
+        for (const QString &id : {QStringLiteral("qwen3-1.7b"), QStringLiteral("qwen3-4b")}) {
+            QString tokJson = models + QStringLiteral("/%1--tokenizer.json").arg(id);
+            QString checkJson = models + QStringLiteral("/%1--tokenizer-check.json").arg(id);
+            if (!QFileInfo::exists(tokJson)) {
+                tokJson = models + QStringLiteral("/%1/tokenizer.json").arg(id);
+                checkJson = models + QStringLiteral("/%1/tokenizer-check.json").arg(id);
+            }
+            if (!QFileInfo::exists(tokJson))
+                continue;
+            BpeTokenizer t;
+            QString error;
+            QVERIFY2(t.load(tokJson, &error), qPrintable(error));
+            QFile f(checkJson);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            for (const QJsonValue &v : QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("samples")).toArray()) {
+                const QString text = v.toObject().value(QStringLiteral("text")).toString();
+                std::vector<std::string> want;
+                for (const QJsonValue &p : v.toObject().value(QStringLiteral("tokens")).toArray())
+                    want.push_back(p.toString().toStdString());
+                const std::vector<std::string> got = t.encode(text);
+                if (got != want) {
+                    QStringList g, w;
+                    for (const auto &x : got)
+                        g << QString::fromStdString(x);
+                    for (const auto &x : want)
+                        w << QString::fromStdString(x);
+                    QFAIL(qPrintable(QStringLiteral("%1: %2\n  ours:  %3\n  model: %4").arg(id, text, g.join(QLatin1Char('|')),
+                                                                                           w.join(QLatin1Char('|')))));
+                }
+                // and back: the text again (special tokens left out)
+                QString back = t.decode(got);
+                if (!text.contains(QLatin1String("<|")))
+                    QCOMPARE(back, text);
+                ++checked;
+            }
+        }
+        if (!checked)
+            QSKIP("no chat model's tokenizer in TP_MODELS_DIR");
     }
 };
 

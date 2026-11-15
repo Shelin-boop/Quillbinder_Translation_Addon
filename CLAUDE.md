@@ -43,9 +43,30 @@ loads in a newer one), but releases come only from the workflow "Build" (Qt 6.12
 - `packaging/manifest.json` and `TP_VERSION` in CMakeLists.txt carry the version (make-addon.sh refuses a mismatch).
 - A push to a work branch puts the package on the pre-release `test`; a push to `main` publishes `v<version>` once.
   Work on branches and merge to `main` when the writer agrees.
-- Models: `models/convert.py` and the workflow "Models" make the release `models-1` and its `catalog.json`
-  (copied into `resources/catalog.json`; the add-on checks downloads against it). A published model release is never
-  changed: new or changed models get a new release name.
+- Models: `models/convert.py` and the workflow "Models" make a model release (`models-1` for 1.0, `models-2` for 1.1)
+  and the catalog of all of them (artifact `catalog`, copied into `resources/catalog.json`; each model names its
+  release; the add-on checks downloads against it). A published model release is never changed: new or changed models
+  get a new release name. A file over 1.9 GB goes up in parts (`...--model.bin.part1`), joined by the add-on.
+- The official add-on (signed with the Quillbinder project's add-on key) is built by the workflow "Official add-on" of
+  Quillbinder_Public from the commit named in its `official-addons/translation-proofreading.json`; a new version needs
+  a new commit there.
+
+## Things learned (2026-11-15, 1.1)
+
+- Chat models (Qwen3): CTranslate2's `Generator`, the prompt in ChatML (`<|im_start|>system ...`), the system message as
+  `static_prompt` (its state is cached, so live work pays for it once); Qwen3 1.7B needs an empty `<think>\n\n</think>`
+  after the assistant's start (thinkTags), Qwen3-4B-Instruct-2507 none. `src/engine/Bpe.cpp` is the byte-level BPE of
+  their tokenizer.json; the logic checks compare it with the model's own tokenizer (`tokenizer-check.json`, made by
+  `models/convert.py`): the same pieces for every sample, the whole chat prompt included.
+- `max_length` of a generation with `return_alternatives` counts from the start (static prompt and prompt included);
+  without alternatives it counts the new pieces only.
+- Both slots share one loaded model (a Qwen model chosen for proofreading and translation is loaded once).
+- The memory guard: `memoryProblem` (catalog `memoryMB` against /proc/meminfo); the checks fake the computer with
+  `TP_TEST_MEMINFO_MB=total,available` and a catalog with `TP_TEST_CATALOG` (test builds only).
+- `keepDialogue` (Logic.cpp) puts the writer's quotation marks back after any model; then the curly-quote rule turns
+  them from their places. The UI checks switch live work off (setting `live`) except in `liveTyping`.
+- A click in the result waits for the double-click time (a double click shows the word in the information area, not
+  the menu); links (the suggestions under a single word) come through `QTextBrowser::anchorClicked`.
 
 ## Things learned (2026-11-15)
 

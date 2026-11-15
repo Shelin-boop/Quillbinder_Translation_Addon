@@ -1,13 +1,14 @@
 {
   "id": "translation-proofreading",
   "name": "Translation and Proofreading",
-  "version": "1.0",
-  "description": "English text is checked for spelling and grammar, German text is translated into English, on this computer only. In the inspector (its own tab) or in a window of its own: the text goes in, the result comes out with every change marked; a click on a word keeps the original or offers other words, and the rest of the sentence is fitted to the word chosen. Rules: no em-dashes, American spelling, curly quotes, three periods instead of the ellipsis character, and your own replacements. The models are chosen and downloaded once under File > Options > Translation and Proofreading (CoEdIT Large: best, non-commercial use only; CoEdIT Base: free; OPUS-MT German to English), checked, and then used without any connection. Engine: CTranslate2 with oneDNN and SentencePiece. Brings Qt's TLS plugin for the download.",
+  "version": "1.1",
+  "description": "English text is checked for spelling and grammar, German text is translated into English, on this computer only. In the inspector (its own tab) or in a window of its own: the text goes in, the result comes out with every change marked, live while you type; a click on a word keeps the original or offers other words, a double click shows its spelling suggestions, words of a similar meaning and the model's other words at the bottom. A single word gets every suggestion. Dialogue keeps its quotation marks as written. Rules: no em-dashes, American spelling, curly quotes, three periods instead of the ellipsis character, and your own replacements. The models are chosen and downloaded once under File > Options > Proofreading (CoEdIT, Qwen3 1.7B and 4B, OPUS-MT), checked, and then used without any connection; models too large for the computer are not offered. Engine: CTranslate2 with oneDNN and SentencePiece. Brings Qt's TLS plugin for the download.",
   "author": "The Quillbinder Translation Add-on project",
   "minApp": "0.80.0",
   "whatsNew": [
-    "First version: proofreading (English) and translation (German to English) in the inspector and in a window",
-    "Click a marked word to keep the original or to choose another word; other words for every word",
-    "The models are your choice (File > Options); rules for em-dashes, American spelling, quotes, your own replacements"
+    "More models to choose from: Qwen3 1.7B and 4B (proofreading and translation, told to leave your style and dialogue alone) and a larger OPUS-MT translator; a model too large for the computer is not offered or loaded",
+    "Live: the result follows about a second after you stop typing; only the sentences you changed are worked on again",
+    "A single word gets its spelling suggestions and words of a similar meaning; a double click on any word shows them in a new area at the bottom",
+    "Dialogue is kept as written: quotation marks stay where you put them, no stray commas"
   ]
 }

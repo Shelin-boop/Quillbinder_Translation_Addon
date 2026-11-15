@@ -69,4 +69,35 @@ struct Segment {
 QList<Segment> compareWords(const QString &original, const QString &corrected);
 QString segmentsText(const QList<Segment> &segments);   // the text as the writer has decided
 
+// ---- 1.1
+
+// Dialogue kept as written: the quotation marks of the original come back to the words they stood at (a model
+// moved, doubled, turned or dropped them, 2026-11-15), quotation marks the model added go, and a punctuation mark the
+// model set apart ("even , talk") goes to the word before it. Where the original has a closing quotation mark, its
+// punctuation there stays as written too. Both texts as words separated by spaces (quotes plain or curly).
+QString keepDialogue(const QString &original, const QString &corrected);
+// No space before , . ; : ! ? and after an opening parenthesis (a model's translation).
+QString tidyPunctuation(const QString &text);
+
+// The words of the American dictionary (resources/en-words.txt); tests may load another list.
+void loadWordList(const QString &file);
+const QSet<QString> &wordList();
+bool knownWord(const QString &word);              // in the list (as written, in lower case, or with ' for ’)
+// Words of the list a misspelled word may have meant: at most two letters away (one more, one less, one other,
+// two swapped), the nearest first; words the thesaurus knows (common ones) before rare ones. Case as written.
+QStringList spellingSuggestions(const QString &word, int max = 8);
+
+// Words of a similar meaning (resources/en-thesaurus.tsv, from WordNet 3.0), for the word's base form ("walked":
+// "walk"); by part of speech, the most frequent sense first, in American spelling.
+struct Similar {
+    QString pos;          // "noun", "verb", "adjective", "adverb"
+    QStringList words;
+};
+void loadThesaurus(const QString &file);
+QStringList baseForms(const QString &word);       // the forms the thesaurus has: "went" -> "go", "cities" -> "city"
+QList<Similar> similarWords(const QString &word, QString *base = nullptr);
+
+// A text that is a single word (letters, an apostrophe or a hyphen inside; quotes and punctuation around it).
+bool isSingleWord(const QString &text, QString *word = nullptr);
+
 } // namespace tp
