@@ -16,7 +16,7 @@ check() { # <library> <allowed pattern>
 }
 # template code of the C++ standard library (std::, marked weak or unique by the compiler) may stay: it is the same
 # everywhere
-STD='_ZN?St.*|_ZT[ISV]N?St.*|_ZZN?St.*'
+STD='_ZN?K?St.*|_ZT[ISV]N?St.*|_ZZN?K?St.*'
 check "$B/addon/plugins/libqb-translation-proofreading.so" "^(qt_plugin_instance|qt_plugin_query_metadata.*|$STD)\$"
 check "$B/addon/translation-proofreading/libqb-tp-engine.so" "^(qb_tp_engine_create|$STD)\$"
 exit $fail

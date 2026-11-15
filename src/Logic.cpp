@@ -921,4 +921,38 @@ bool isSingleWord(const QString &text, QString *word)
     return true;
 }
 
+QStringList usefulModelWords(const QStringList &found, const QString &word, bool otherForms, const QStringList *near)
+{
+    static const QRegularExpression edges(QStringLiteral("^[\"“”‘'(\\[]+|[.,;:!?\"“”’')\\]]+$"));
+    const QString lower = word.toLower();
+    QSet<QString> bases{lower};
+    if (!otherForms)
+        for (const QString &b : baseForms(lower))
+            bases.insert(b);
+    QSet<QString> nearWords;
+    if (near)
+        for (const QString &n : *near)
+            nearWords.insert(n.toLower());
+    QStringList out;
+    QSet<QString> seen{lower};
+    for (QString w : found) {
+        w = w.trimmed().remove(edges);
+        const QString l = w.toLower();
+        if (w.isEmpty() || seen.contains(l))
+            continue;
+        seen.insert(l);
+        if (!otherForms) {
+            bool sameWord = false;
+            for (const QString &b : baseForms(l))
+                sameWord = sameWord || bases.contains(b);
+            if (sameWord)
+                continue;
+        }
+        if (near && !nearWords.contains(l) && distance(l, lower, 2) > 2)
+            continue;
+        out << w;
+    }
+    return out;
+}
+
 } // namespace tp

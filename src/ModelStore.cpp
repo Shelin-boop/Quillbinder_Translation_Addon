@@ -550,7 +550,13 @@ bool ModelStore::importFolder(const QString &id, const QString &folder, QString 
                 if (!checkFile(ps, p, error))
                     return false;
                 QFile in(ps);
-                in.open(QIODevice::ReadOnly);
+                if (!in.open(QIODevice::ReadOnly)) {
+                    if (error)
+                        *error = tr("%1 cannot be read.").arg(ps);
+                    out.close();
+                    QFile::remove(joining);
+                    return false;
+                }
                 while (!in.atEnd())
                     out.write(in.read(8 * 1024 * 1024));
             }

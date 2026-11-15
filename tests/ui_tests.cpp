@@ -422,8 +422,9 @@ private slots:
 
     void memoryGuard()
     {
-        // a computer with 4 GB, 3 GB of it free: the 4B model is never offered, the 1.7B one not loaded now
-        qputenv("TP_TEST_MEMINFO_MB", "4096,3000");
+        // a computer with 4 GB, 1.5 GB of it free: the 4B model is never offered, the 1.7B one not loaded now (not even
+        // when the model loaded by the checks before, CoEdIT Large with 1.6 GB, is freed first)
+        qputenv("TP_TEST_MEMINFO_MB", "4096,1500");
         const QString big = m_tool->store()->downloadProblem(QStringLiteral("qwen3-4b"));
         QVERIFY2(big.contains(QStringLiteral("too little")), qPrintable(big));
         QVERIFY(m_tool->store()->downloadProblem(QStringLiteral("qwen3-1.7b")).isEmpty());

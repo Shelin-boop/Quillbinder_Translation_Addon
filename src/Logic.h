@@ -100,4 +100,12 @@ QList<Similar> similarWords(const QString &word, QString *base = nullptr);
 // A text that is a single word (letters, an apostrophe or a hyphen inside; quotes and punctuation around it).
 bool isSingleWord(const QString &text, QString *word = nullptr);
 
+// The model's other words for a word, as the single word and the information area show them: without quotes and
+// punctuation around them, without repeats (also in another case) and without the word itself. With otherForms false
+// also without the word's other forms ("windows" for "window": the same word, not another one). With near, only words
+// at most two letters from the word or in near (its spelling suggestions and similar words): for a word alone, the
+// model's other words are mostly ones a sentence starts with ("It", "The").
+QStringList usefulModelWords(const QStringList &found, const QString &word, bool otherForms = true,
+                             const QStringList *near = nullptr);
+
 } // namespace tp

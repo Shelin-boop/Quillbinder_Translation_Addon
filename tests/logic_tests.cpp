@@ -195,6 +195,22 @@ private slots:
         QVERIFY(similarWords(QStringLiteral("xqzt")).isEmpty());
     }
 
+    void modelWords()
+    {
+        // the information area: no repeats in another case, not the word itself; proofreading: no other form of it
+        const QStringList found{QStringLiteral("windows,"), QStringLiteral("Windows"), QStringLiteral("door"),
+                                QStringLiteral("“Window”"), QStringLiteral("wind"), QStringLiteral("door.")};
+        QCOMPARE(usefulModelWords(found, QStringLiteral("window"), false), (QStringList{QStringLiteral("door"), QStringLiteral("wind")}));
+        QCOMPARE(usefulModelWords(found, QStringLiteral("window")),
+                 (QStringList{QStringLiteral("windows"), QStringLiteral("door"), QStringLiteral("wind")}));
+        // a word alone (2026-11-15: "beautifull" gave "It, This, The, I, My"): only words close in spelling or meaning
+        const QStringList near{QStringLiteral("beautifully"), QStringLiteral("fair"), QStringLiteral("beautifull")};
+        QCOMPARE(usefulModelWords({QStringLiteral("It"), QStringLiteral("Beautifully"), QStringLiteral("This"),
+                                   QStringLiteral("Fair"), QStringLiteral("beautful"), QStringLiteral("My")},
+                                  QStringLiteral("beautiful"), true, &near),
+                 (QStringList{QStringLiteral("Beautifully"), QStringLiteral("Fair"), QStringLiteral("beautful")}));
+    }
+
     void singleWord()
     {
         QString w;

@@ -856,12 +856,22 @@ void Panel::requestSingleModelWords()
                 return;
             self->m_tool->touchEngine();
             self->m_single.modelPending = false;
-            for (const Alternative &a : self->filterAlternatives(found, current)) {
-                const QString w = a.word.trimmed().remove(QRegularExpression(QStringLiteral("[.,;:!?\"“”]+$")));
-                if (!w.isEmpty() && w.compare(self->m_single.result, Qt::CaseInsensitive) != 0
-                    && !self->m_single.modelWords.contains(w))
-                    self->m_single.modelWords << w;
+            QStringList words;
+            for (const Alternative &a : self->filterAlternatives(found, current))
+                words << a.word;
+            if (self->proofreading()) {
+                // proofreading a word alone: only the model's words close to it in spelling or meaning
+                QStringList near = self->m_single.spelling;
+                near << self->m_single.word;
+                for (const Similar &sim : std::as_const(self->m_single.similar))
+                    near << sim.words;
+                words = usefulModelWords(words, self->m_single.result, false, &near);
+            } else {
+                words = usefulModelWords(words, self->m_single.result);
             }
+            for (const QString &w : std::as_const(words))
+                if (w.compare(self->m_single.word, Qt::CaseInsensitive) != 0 && !self->m_single.modelWords.contains(w))
+                    self->m_single.modelWords << w;
             self->render();
         }, Qt::QueuedConnection);
     });
@@ -1454,11 +1464,13 @@ void Panel::requestInfoModelWords(const AltJob &job, bool ok, const QString &job
             self->m_tool->touchEngine();
             self->m_infoPending = false;
             self->m_infoModelError = error;
-            for (const Alternative &a : self->filterAlternatives(found, word)) {
-                const QString w = a.word.trimmed().remove(QRegularExpression(QStringLiteral("[.,;:!?\"“”]+$")));
-                if (!w.isEmpty() && !self->m_infoModelWords.contains(w))
+            QStringList words;
+            for (const Alternative &a : self->filterAlternatives(found, word))
+                words << a.word;
+            // proofreading: the word's other forms are no other words ("windows" for "window")
+            for (const QString &w : usefulModelWords(words, word, !self->proofreading()))
+                if (!self->m_infoModelWords.contains(w))
                     self->m_infoModelWords << w;
-            }
             self->fillInfo();
         }, Qt::QueuedConnection);
     });
