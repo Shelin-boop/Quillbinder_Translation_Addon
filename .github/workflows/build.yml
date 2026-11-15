@@ -41,9 +41,10 @@ jobs:
           python3 -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 -O /opt/qt
           test -f "$QT_DIR/plugins/tls/libqopensslbackend.so"
 
+      # restore and save on their own: the libraries are kept even when a later step fails
       - name: Engine libraries (cache)
         id: deps
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             deps/install
@@ -58,6 +59,17 @@ jobs:
           packaging/build-deps.sh
           rm -rf deps/b-onednn deps/b-ct2 deps/b-spm
 
+      - name: Engine libraries (keep)
+        if: steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            deps/install
+            deps/CTranslate2
+            deps/oneDNN
+            deps/sentencepiece
+          key: ${{ steps.deps.outputs.cache-primary-key }}
+
       - name: The American spelling list is made from the dictionaries
         run: |
           python3 tools/make-us-spelling.py
@@ -69,7 +81,7 @@ jobs:
 
       - name: Models for the checks (cache)
         id: models
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: models-cache
           key: models-${{ hashFiles('resources/catalog.json') }}
@@ -81,6 +93,13 @@ jobs:
         run: |
           REL=$(python3 -c "import json; print(json.load(open('resources/catalog.json'))['release'])")
           gh release download "$REL" -R "${{ github.repository }}" -D models-cache
+
+      - name: Models for the checks (keep)
+        if: steps.models.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: models-cache
+          key: ${{ steps.models.outputs.cache-primary-key }}
 
       - name: Build with the checks
         run: |
