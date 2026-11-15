@@ -1,0 +1,161 @@
+{
+  "format": 1,
+  "release": "models-1",
+  "engine": "CTranslate2 4.9.0",
+  "models": [
+    {
+      "id": "coedit-large",
+      "kind": "corrector",
+      "title": "CoEdIT Large (Grammarly)",
+      "summary": "Best quality: finds most spelling and grammar errors. Non-commercial use only.",
+      "license": "CC BY-NC 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-nc/4.0/",
+      "nonCommercial": true,
+      "credit": "CoEdIT-large by Vipul Raheja, Dhruv Kumar, Ryan Koo and Dongyeop Kang (Grammarly), https://huggingface.co/grammarly/coedit-large, licensed under CC BY-NC 4.0. Changed: converted to CTranslate2 with 8-bit weights.",
+      "memoryMB": 1600,
+      "source": "https://huggingface.co/grammarly/coedit-large/tree/5637bcdf9d8d4419f97c8cfea36f7d35c79232b6",
+      "tokenizer": {
+        "type": "t5",
+        "file": "spiece.model"
+      },
+      "files": [
+        {
+          "name": "MODEL-LICENSE.txt",
+          "asset": "coedit-large--MODEL-LICENSE.txt",
+          "size": 421,
+          "sha256": "897f89e6893e420bbc8dec269bf8e5b3bc150c9f1d0bd20077ae4645a6f88400"
+        },
+        {
+          "name": "config.json",
+          "asset": "coedit-large--config.json",
+          "size": 226,
+          "sha256": "99fa08f9ae4fe585ace28258a3420d4d19d59e2b99d3e8dd2bc7dff70aa408cf"
+        },
+        {
+          "name": "model.bin",
+          "asset": "coedit-large--model.bin",
+          "size": 786242522,
+          "sha256": "058fa16014f8d352af1df1490b7b152d67b4d979ea60481c3d10a73779db1212"
+        },
+        {
+          "name": "shared_vocabulary.json",
+          "asset": "coedit-large--shared_vocabulary.json",
+          "size": 536169,
+          "sha256": "7e0dc3988f3dfa6c05d3cd547971e257901f1cce8b65ea0900dfdce730c420ce"
+        },
+        {
+          "name": "spiece.model",
+          "asset": "coedit-large--spiece.model",
+          "size": 791656,
+          "sha256": "d60acb128cf7b7f2536e8f38a5b18a05535c9e14c7a355904270e15b0945ea86"
+        }
+      ],
+      "sizeMB": 788
+    },
+    {
+      "id": "coedit-base",
+      "kind": "corrector",
+      "title": "CoEdIT Base (free license)",
+      "summary": "Smaller and faster, free for any use, but it misses many errors.",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "nonCommercial": false,
+      "credit": "coedit-base by J. Bochi, https://huggingface.co/jbochi/coedit-base (FLAN-T5 base trained on Grammarly's CoEdIT data), licensed under Apache-2.0. Changed: converted to CTranslate2 with 8-bit weights.",
+      "memoryMB": 600,
+      "source": "https://huggingface.co/jbochi/coedit-base/tree/bef93f1b9bae24f9383580764820d5de1adafcdc",
+      "tokenizer": {
+        "type": "t5",
+        "file": "spiece.model"
+      },
+      "files": [
+        {
+          "name": "MODEL-LICENSE.txt",
+          "asset": "coedit-base--MODEL-LICENSE.txt",
+          "size": 399,
+          "sha256": "0b10f7c4c0297adddd4050a5421863e47d5c8242b30ca0455d72ffa838a92a37"
+        },
+        {
+          "name": "config.json",
+          "asset": "coedit-base--config.json",
+          "size": 226,
+          "sha256": "99fa08f9ae4fe585ace28258a3420d4d19d59e2b99d3e8dd2bc7dff70aa408cf"
+        },
+        {
+          "name": "model.bin",
+          "asset": "coedit-base--model.bin",
+          "size": 248918302,
+          "sha256": "2324afb7b2bf68da558f8fd22e4caceff1c8bae73fb0b301dde490be3da559fa"
+        },
+        {
+          "name": "shared_vocabulary.json",
+          "asset": "coedit-base--shared_vocabulary.json",
+          "size": 536691,
+          "sha256": "2410c4e49b50c4d7ea09e7555f86c3a40dd39d9f4cc922cf32e7a2a0597d85cb"
+        },
+        {
+          "name": "spiece.model",
+          "asset": "coedit-base--spiece.model",
+          "size": 791656,
+          "sha256": "d60acb128cf7b7f2536e8f38a5b18a05535c9e14c7a355904270e15b0945ea86"
+        }
+      ],
+      "sizeMB": 250
+    },
+    {
+      "id": "opus-mt-de-en",
+      "kind": "translator",
+      "title": "OPUS-MT German to English (University of Helsinki)",
+      "summary": "Translates German into English. Free for any use.",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "nonCommercial": false,
+      "credit": "opus-mt-de-en by Language Technology Research Group at the University of Helsinki (Helsinki-NLP), https://huggingface.co/Helsinki-NLP/opus-mt-de-en, licensed under Apache-2.0. Changed: converted to CTranslate2 with 8-bit weights.",
+      "memoryMB": 300,
+      "source": "https://huggingface.co/Helsinki-NLP/opus-mt-de-en/tree/1a922f3b32a8e809e17a47d4b32142d8105924e5",
+      "tokenizer": {
+        "type": "marian",
+        "source": "source.spm",
+        "target": "target.spm"
+      },
+      "files": [
+        {
+          "name": "MODEL-LICENSE.txt",
+          "asset": "opus-mt-de-en--MODEL-LICENSE.txt",
+          "size": 462,
+          "sha256": "31de743fcbc5a08539b6316e83c443f24e441af9719a51def7ce997a5e3a6ed8"
+        },
+        {
+          "name": "config.json",
+          "asset": "opus-mt-de-en--config.json",
+          "size": 223,
+          "sha256": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af"
+        },
+        {
+          "name": "model.bin",
+          "asset": "opus-mt-de-en--model.bin",
+          "size": 75979635,
+          "sha256": "399ce16d36b721cd166fe973b31c1f1195b92af200665eccd9a7fc62263e02ec"
+        },
+        {
+          "name": "shared_vocabulary.json",
+          "asset": "opus-mt-de-en--shared_vocabulary.json",
+          "size": 993828,
+          "sha256": "fa4c8d666c582ad39892a2ae5d4ded1b0ddde4b49dc784a7fcbd73940f9fa13e"
+        },
+        {
+          "name": "source.spm",
+          "asset": "opus-mt-de-en--source.spm",
+          "size": 796845,
+          "sha256": "bbd1f495eea99c8e21ae086d9146e0fa7b096c3dfdd9ba07ab8b631889df5c9b"
+        },
+        {
+          "name": "target.spm",
+          "asset": "opus-mt-de-en--target.spm",
+          "size": 768489,
+          "sha256": "678f2a1177d8389f67b66299762dcc4fc567e89b07e212ba91b0c56daecf47ce"
+        }
+      ],
+      "sizeMB": 79
+    }
+  ]
+}

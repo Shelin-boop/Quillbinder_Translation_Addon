@@ -48,5 +48,5 @@ jobs:
             exit 0
           fi
           gh release create "$REL" --title "Models $REL (not the add-on)" --prerelease \
-            --notes "The models the add-on downloads when the writer chooses one (File > Options). They are not meant to be downloaded by hand. Licences: MODEL-LICENSE.txt of each model and the README of this repository."
+            --notes "The models the add-on downloads when the writer chooses one (File > Options). They are not meant to be downloaded by hand. Licenses: MODEL-LICENSE.txt of each model and the README of this repository."
           gh release upload "$REL" dist-models/*

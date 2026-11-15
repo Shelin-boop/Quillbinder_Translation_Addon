@@ -21,7 +21,7 @@ from huggingface_hub import hf_hub_download
 
 CT2_VERSION = "4.9.0"
 
-# Each model: the original on Hugging Face at a fixed revision, how it is used, its licence.
+# Each model: the original on Hugging Face at a fixed revision, how it is used, its license.
 MODELS = [
     {
         "id": "coedit-large",
@@ -43,7 +43,7 @@ MODELS = [
     {
         "id": "coedit-base",
         "kind": "corrector",
-        "title": "CoEdIT Base (free licence)",
+        "title": "CoEdIT Base (free license)",
         "summary": "Smaller and faster, free for any use, but it misses many errors.",
         "repo": "jbochi/coedit-base",
         "revision": "bef93f1b9bae24f9383580764820d5de1adafcdc",
@@ -128,7 +128,7 @@ def main():
         if t["type"] == "t5":
             check_t5_tokenizer(m, os.path.join(d, t["file"]))
         with open(os.path.join(d, "MODEL-LICENSE.txt"), "w", encoding="utf-8") as f:
-            f.write(f"{m['title']}\n\n{m['credit']}\n\nLicence: {m['license']} ({m['licenseUrl']})\n"
+            f.write(f"{m['title']}\n\n{m['credit']}\n\nLicense: {m['license']} ({m['licenseUrl']})\n"
                     f"Original: https://huggingface.co/{m['repo']} at revision {m['revision']}\n")
         files = []
         for name in sorted(os.listdir(d)):
