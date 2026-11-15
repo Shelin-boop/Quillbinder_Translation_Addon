@@ -265,6 +265,9 @@ void Panel::buildInspectorLayout()
     g->addLayout(buttons, 2, 0, 1, 2);
     g->addWidget(m_progress, 3, 0, 1, 2);
     g->addWidget(m_status, 4, 0, 1, 2);
+    // room for two lines of status: the splitter must not cut the second one off
+    m_status->setMinimumHeight(2 * m_status->fontMetrics().lineSpacing() + 2);
+    m_status->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     g->setColumnStretch(0, 1);
     g->setColumnStretch(1, 1);
 
@@ -433,9 +436,9 @@ void Panel::run()
     if (modelId.isEmpty()) {
         setStatus(kind == QLatin1String("translator")
                       ? tr("No translation model is downloaded yet. Choose one with Models... (File > Options > "
-                           "Translation and Proofreading).")
+                           "Proofreading).")
                       : tr("No proofreading model is downloaded yet. Choose one with Models... (File > Options > "
-                           "Translation and Proofreading)."));
+                           "Proofreading)."));
         emit finished();
         return;
     }
@@ -568,10 +571,10 @@ void Panel::finishRun(const QStringList &results, const QString &error, double s
     else if (proofreading())
         setStatus(changeCount() == 0 ? tr("Done in %1 s: no changes.").arg(seconds, 0, 'f', 1)
                   : changeCount() == 1
-                      ? tr("Done in %1 s: 1 change. Click the marked word to keep the original or to choose another "
-                           "word.").arg(seconds, 0, 'f', 1)
-                      : tr("Done in %1 s: %2 changes. Click a marked word to keep the original or to choose another "
-                           "word.").arg(seconds, 0, 'f', 1).arg(changeCount()));
+                      ? tr("Done in %1 s: 1 change. Click it for the original and other words.").arg(seconds, 0, 'f', 1)
+                      : tr("Done in %1 s: %2 changes. Click one for the original and other words.")
+                            .arg(seconds, 0, 'f', 1)
+                            .arg(changeCount()));
     else
         setStatus(tr("Translated in %1 s. Click a word for other words.").arg(seconds, 0, 'f', 1));
     emit finished();

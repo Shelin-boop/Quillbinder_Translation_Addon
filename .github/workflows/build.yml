@@ -1,0 +1,145 @@
+# Builds the add-on against The Qt Company's Qt 6.12.0 (Quillbinder's runtime since 0.80.0), runs every check with
+# the real models, and makes the package:
+#  - a push to a work branch puts it on the pre-release "test" (a fixed address for trying it out),
+#  - a push to main publishes the release v<version> (once per version).
+name: Build
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore: ['models/convert.py', '.github/workflows/models.yml', '**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  QT_VERSION: "6.12.0"
+  QT_DIR: /opt/qt/6.12.0/gcc_64
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ninja-build libgl-dev libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 \
+            fonts-dejavu-core hunspell-en-us hunspell-en-gb hunspell-tools
+
+      - name: Qt ${{ env.QT_VERSION }} (The Qt Company's build, as in Quillbinder's AppImage)
+        run: |
+          python3 -m pip install --user -q 'aqtinstall==3.3.0'
+          sudo mkdir -p /opt/qt && sudo chown "$USER" /opt/qt
+          python3 -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 -O /opt/qt
+          test -f "$QT_DIR/plugins/tls/libqopensslbackend.so"
+
+      - name: Engine libraries (cache)
+        id: deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/install
+            deps/CTranslate2
+            deps/oneDNN
+            deps/sentencepiece
+          key: deps-${{ hashFiles('packaging/build-deps.sh') }}-ubuntu-24.04
+
+      - name: Engine libraries (oneDNN, CTranslate2, SentencePiece)
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          packaging/build-deps.sh
+          rm -rf deps/b-onednn deps/b-ct2 deps/b-spm
+
+      - name: The American spelling list is made from the dictionaries
+        run: |
+          python3 tools/make-us-spelling.py
+          if ! git diff --quiet -- resources/us-spelling.tsv resources/en-words.txt; then
+            echo "::warning::The dictionaries of this runner give another spelling list than the one in the source (newer Ubuntu packages?); the source's list is used."
+            git diff --stat -- resources/
+            git checkout -- resources/us-spelling.tsv resources/en-words.txt
+          fi
+
+      - name: Models for the checks (cache)
+        id: models
+        uses: actions/cache@v4
+        with:
+          path: models-cache
+          key: models-${{ hashFiles('resources/catalog.json') }}
+
+      - name: Models for the checks (download)
+        if: steps.models.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REL=$(python3 -c "import json; print(json.load(open('resources/catalog.json'))['release'])")
+          gh release download "$REL" -R "${{ github.repository }}" -D models-cache
+
+      - name: Build with the checks
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$QT_DIR" -DTP_TEST_SWITCHES=ON
+          cmake --build build
+
+      - name: Checks
+        env:
+          QT_QPA_PLATFORM: offscreen
+          TP_MODELS_DIR: ${{ github.workspace }}/models-cache
+          TP_SHOTS: ${{ github.workspace }}/screenshots
+        run: |
+          cd build
+          ctest --output-on-failure --timeout 3600
+
+      - name: Release build and package
+        run: |
+          cmake -S . -B build-release -G Ninja -DCMAKE_PREFIX_PATH="$QT_DIR" -DTP_TEST_SWITCHES=OFF
+          cmake --build build-release
+          tests/check-exports.sh build-release
+          QB_QT_DIR="$QT_DIR" packaging/make-addon.sh build-release dist
+          sha256sum dist/*.qbpkg | tee dist/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: translation-proofreading
+          path: |
+            dist/
+            screenshots/
+
+      - name: Test build on the pre-release "test"
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete test --yes --cleanup-tag 2>/dev/null || true
+          gh release create test --prerelease --target "${{ github.sha }}" \
+            --title "Test build (not a release)" \
+            --notes "Built from the branch ${{ github.ref_name }}, commit ${{ github.sha }}. For trying out: install with Quillbinder's File > Install Update or Add-on, then restart Quillbinder. Replaced by every new test build." \
+            dist/*.qbpkg dist/SHA256SUMS.txt
+
+      - name: Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(python3 -c "import json; print(json.load(open('packaging/manifest.json'))['version'])")
+          if gh release view "v$V" >/dev/null 2>&1; then
+            echo "v$V is published already (raise the version for a new release)"
+            exit 0
+          fi
+          python3 - "$V" > notes.md <<'PY'
+          import json, sys
+          m = json.load(open("packaging/manifest.json"))
+          print("Install with Quillbinder's **File > Install Update or Add-on** (Quillbinder 0.80.0 or later, Linux), "
+                "then restart Quillbinder. The models are chosen and downloaded in **File > Options > Proofreading**.\n")
+          print("What is new:\n")
+          for line in m["whatsNew"]:
+              print(f"- {line}")
+          PY
+          gh release create "v$V" --title "Translation and Proofreading $V" --notes-file notes.md \
+            dist/*.qbpkg dist/SHA256SUMS.txt

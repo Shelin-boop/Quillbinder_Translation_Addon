@@ -34,11 +34,16 @@ add_library(qb-translation-proofreading MODULE
   src/Logic.cpp src/Logic.h
   src/EngineApi.h
   third_party/quillbinder/ToolApi.h
-  resources/resources.qrc)
+  resources/translation-proofreading.qrc)
 target_include_directories(qb-translation-proofreading PRIVATE src third_party/quillbinder)
 target_link_libraries(qb-translation-proofreading PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network ${CMAKE_DL_LIBS})
 target_compile_definitions(qb-translation-proofreading PRIVATE TP_VERSION="${TP_VERSION}")
-set_target_properties(qb-translation-proofreading PROPERTIES PREFIX "lib" LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/addon/plugins)
+# Only the plugin's two entry points are visible, and its own functions bind to themselves: the program has
+# functions of the same name (its resources' qInitResources_resources, found in the end-to-end test of 2026-11-15:
+# the add-on's catalog was not found because its call went to the program's function).
+set_target_properties(qb-translation-proofreading PROPERTIES PREFIX "lib" LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/addon/plugins
+  CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+target_link_options(qb-translation-proofreading PRIVATE "LINKER:-Bsymbolic" "LINKER:-z,noexecstack")
 if(TP_TEST_SWITCHES)
   target_compile_definitions(qb-translation-proofreading PRIVATE TP_TEST_SWITCHES)
 endif()
@@ -87,7 +92,7 @@ configure_file(resources/icons/translation-proofreading.svg ${CMAKE_BINARY_DIR}/
 if(TP_TEST_SWITCHES)
   enable_testing()
   find_package(Qt6 REQUIRED COMPONENTS Test)
-  add_executable(tp_logic_tests tests/logic_tests.cpp src/Logic.cpp src/Logic.h resources/resources.qrc)
+  add_executable(tp_logic_tests tests/logic_tests.cpp src/Logic.cpp src/Logic.h resources/translation-proofreading.qrc)
   target_include_directories(tp_logic_tests PRIVATE src)
   target_link_libraries(tp_logic_tests PRIVATE Qt6::Core Qt6::Test)
   add_test(NAME logic COMMAND tp_logic_tests)
@@ -97,7 +102,7 @@ if(TP_TEST_SWITCHES)
   add_executable(tp_ui_tests tests/ui_tests.cpp tests/FakeHost.h
     src/TranslateTool.cpp src/TranslateTool.h src/Panel.cpp src/Panel.h src/OptionsPage.cpp src/OptionsPage.h
     src/ModelStore.cpp src/ModelStore.h src/Logic.cpp src/Logic.h src/EngineApi.h third_party/quillbinder/ToolApi.h
-    resources/resources.qrc)
+    resources/translation-proofreading.qrc)
   target_include_directories(tp_ui_tests PRIVATE src third_party/quillbinder tests)
   target_link_libraries(tp_ui_tests PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test ${CMAKE_DL_LIBS})
   target_compile_definitions(tp_ui_tests PRIVATE TP_BUILD_DIR="${CMAKE_BINARY_DIR}" TP_VERSION="${TP_VERSION}" TP_TEST_SWITCHES)
@@ -109,4 +114,6 @@ if(TP_TEST_SWITCHES)
   target_link_libraries(tp_plugin_tests PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
   target_compile_definitions(tp_plugin_tests PRIVATE TP_BUILD_DIR="${CMAKE_BINARY_DIR}")
   add_test(NAME plugin COMMAND tp_plugin_tests)
+  # the libraries show the program nothing but their entry points (see above)
+  add_test(NAME exports COMMAND ${CMAKE_SOURCE_DIR}/tests/check-exports.sh ${CMAKE_BINARY_DIR})
 endif()

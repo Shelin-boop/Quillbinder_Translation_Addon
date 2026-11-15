@@ -46,7 +46,8 @@ public:
     QWidget *createInspectorTab(const QString &key, QWidget *parent) override;
     QList<qb::tools::ToolbarButton> toolbarButtons() const override;
     QMenu *commandMenu(const QString &commandKey) override;
-    QString optionsTitle() const override { return tr("Translation and Proofreading"); }
+    // short: it stands under an icon in the row of File > Options (the full name is its tool tip)
+    QString optionsTitle() const override { return tr("Proofreading"); }
     QString optionsIcon() const override { return iconPath(); }
 
     // ---- for the panel and the options
