@@ -70,13 +70,16 @@ if(TP_CT2_INCLUDE AND TP_SPM_INCLUDE AND TP_CT2_LIB AND TP_DNNL_LIB AND TP_SPM_L
   # the static libraries' symbols stay inside (no clash with libraries the program or other add-ons load)
   # noexecstack: oneDNN's profiling stub (assembler) has no stack note, which would ask for an executable stack,
   # and newer systems (glibc 2.41) refuse to load such a library
-  target_link_options(qb-tp-engine PRIVATE "LINKER:--exclude-libs,ALL" "LINKER:--as-needed" "LINKER:-z,noexecstack")
+  target_link_options(qb-tp-engine PRIVATE "LINKER:--exclude-libs,ALL" "LINKER:--as-needed" "LINKER:-z,noexecstack"
+    "LINKER:-Bsymbolic")
   # libgomp (OpenMP of GCC) beside the engine, as in the add-on: not every system has it
   execute_process(COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libgomp.so.1 OUTPUT_VARIABLE TP_GOMP OUTPUT_STRIP_TRAILING_WHITESPACE)
   add_custom_command(TARGET qb-tp-engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TP_GOMP}" ${CMAKE_BINARY_DIR}/addon/translation-proofreading/lib/libgomp.so.1
     VERBATIM)
-  set_target_properties(qb-tp-engine PROPERTIES PREFIX "lib" CXX_VISIBILITY_PRESET hidden
+  # VISIBILITY_INLINES_HIDDEN: Qt 6.12's headers emit inline functions such as QBasicMutex::unlock, which the engine
+  # must not show (the check "exports", workflow of 2026-11-15)
+  set_target_properties(qb-tp-engine PROPERTIES PREFIX "lib" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/addon/translation-proofreading
     BUILD_RPATH "$ORIGIN/lib" INSTALL_RPATH "$ORIGIN/lib")
   message(STATUS "Engine: ${TP_CT2_LIB}")
