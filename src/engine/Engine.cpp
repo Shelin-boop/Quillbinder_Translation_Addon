@@ -74,11 +74,28 @@ public:
                 m->bans = chatDashBans(m->bpe, model.dir);
             } else {
                 const QString src = model.tokenizer == QLatin1String("marian") ? model.spmSource : model.spm;
+#ifdef Q_OS_WIN
+                // Windows (2026-11-16): SentencePiece opens a path in the system's code page, not as UTF-8, so a folder
+                // such as C:\Users\Jürgen would fail; it gets the file's content instead (CTranslate2 4.9 reads
+                // UTF-8 paths on Windows itself)
+                auto loadSpm = [&](sentencepiece::SentencePieceProcessor &p, const QString &name) {
+                    QFile f(model.dir + QLatin1Char('/') + name);
+                    if (!f.open(QIODevice::ReadOnly))
+                        return false;
+                    const QByteArray b = f.readAll();
+                    return p.LoadFromSerializedProto(absl::string_view(b.constData(), size_t(b.size()))).ok();
+                };
+                if (!loadSpm(m->source, src))
+                    return fail(error, QStringLiteral("cannot read %1").arg(src));
+                if (model.tokenizer == QLatin1String("marian") && !loadSpm(m->target, model.spmTarget))
+                    return fail(error, QStringLiteral("cannot read %1").arg(model.spmTarget));
+#else
                 if (!m->source.Load(ss(model.dir + QLatin1Char('/') + src)).ok())
                     return fail(error, QStringLiteral("cannot read %1").arg(src));
                 if (model.tokenizer == QLatin1String("marian")
                     && !m->target.Load(ss(model.dir + QLatin1Char('/') + model.spmTarget)).ok())
                     return fail(error, QStringLiteral("cannot read %1").arg(model.spmTarget));
+#endif
                 m->translator = std::make_unique<ctranslate2::Translator>(loader, config);
                 m->bans = dashBans(model.dir);
             }

@@ -175,3 +175,181 @@ jobs:
           PY
           gh release create "v$V" --title "Translation and Proofreading $V" --notes-file notes.md \
             dist/*.qbpkg dist/SHA256SUMS.txt
+
+  # Windows 11 x64 (2026-11-16): the same add-on for Quillbinder for Windows, built with MSVC against The Qt Company's
+  # Qt 6.12.0 for MSVC 2022 (Quillbinder's Windows runtime), its checks with the real models in a folder named with
+  # letters outside ASCII (as C:\Users\Jürgen\...), the package translation-proofreading-<version>-windows.qbpkg:
+  # a work branch puts it on the pre-release "test-windows", main publishes "v<version>-windows" once.
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Qt cache
+        id: qtcache
+        uses: actions/cache@v4
+        with:
+          path: C:\Qt\6.12.0
+          key: qt-6.12.0-win64_msvc2022_64-v1
+
+      # aqtinstall 3.3.0 looks for the Windows packages of Qt 6.11 and later in the wrong folder; the step gives it the
+      # folder name first (the same patch as Quillbinder's public Windows workflow)
+      - name: Qt ${{ env.QT_VERSION }} for MSVC 2022 (The Qt Company's build, as in Quillbinder for Windows)
+        run: |
+          if [ "${{ steps.qtcache.outputs.cache-hit }}" != "true" ]; then
+            python -m pip install -q 'aqtinstall==3.3.0'
+            python - <<'PY'
+          import pathlib
+          import aqt.metadata as m
+          p = pathlib.Path(m.__file__)
+          s = p.read_text(encoding="utf-8")
+          old = "    def extension_for_arch(architecture: str, is_version_ge_6: bool) -> str:\n"
+          new = old + ("        if architecture.startswith('win64_') and is_version_ge_6:\n"
+                       "            return architecture[len('win64_'):]\n")
+          assert old in s, "aqtinstall changed: extension_for_arch not found"
+          p.write_text(s.replace(old, new, 1), encoding="utf-8")
+          PY
+            python -m aqt install-qt windows desktop "$QT_VERSION" win64_msvc2022_64 -O C:/Qt
+          fi
+          test -f /c/Qt/6.12.0/msvc2022_64/bin/Qt6Core.dll
+
+      - name: Find Visual Studio
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * `
+                  -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          "VSDIR=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Engine libraries (cache)
+        id: deps
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            deps/install
+            deps/CTranslate2
+            deps/oneDNN
+            deps/sentencepiece
+          key: deps-${{ hashFiles('packaging/build-deps-windows.sh') }}-windows-2025
+
+      - name: Engine libraries (oneDNN, CTranslate2, SentencePiece with MSVC)
+        if: steps.deps.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          "C:\Program Files\Git\bin\bash.exe" -c "packaging/build-deps-windows.sh > deps-build.log 2>&1; rc=$?; tail -40 deps-build.log; rm -rf deps/b-onednn deps/b-ct2 deps/b-spm; exit $rc"
+
+      - name: Engine libraries (keep)
+        if: steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            deps/install
+            deps/CTranslate2
+            deps/oneDNN
+            deps/sentencepiece
+          key: ${{ steps.deps.outputs.cache-primary-key }}
+
+      - name: Models for the checks (cache)
+        id: models
+        uses: actions/cache/restore@v4
+        with:
+          path: models-cache
+          key: models-${{ hashFiles('resources/catalog.json') }}-windows
+
+      - name: Models for the checks (download)
+        if: steps.models.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download models-1 -R "${{ github.repository }}" -D models-cache
+          gh release download models-2 -R "${{ github.repository }}" -D models-cache --clobber \
+            -p 'catalog.json' -p 'qwen3-1.7b--*' -p 'opus-mt-big-de-en--*' -p 'qwen3-4b--tokenizer*' -p 'qwen3-4b--vocabulary.json'
+          ls -la models-cache
+
+      - name: Models for the checks (keep)
+        if: steps.models.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: models-cache
+          key: ${{ steps.models.outputs.cache-primary-key }}
+
+      - name: Build with the checks
+        shell: cmd
+        run: |
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/msvc2022_64 -DTP_TEST_SWITCHES=ON || exit /b 1
+          cmake --build build || exit /b 1
+
+      # the checks' data in a folder named with letters outside ASCII (QTemporaryDir takes TEMP), so the model paths are
+      # too; dumpbin (the exports check) needs MSVC's environment
+      - name: A temporary folder named with letters outside ASCII
+        run: mkdir -p "$RUNNER_TEMP/Prüfung Jürgen ß"
+
+      - name: Checks
+        shell: cmd
+        env:
+          QT_QPA_PLATFORM: offscreen
+          TP_MODELS_DIR: ${{ github.workspace }}\models-cache
+          TP_SHOTS: ${{ github.workspace }}\screenshots
+          TEMP: ${{ runner.temp }}\Prüfung Jürgen ß
+          TMP: ${{ runner.temp }}\Prüfung Jürgen ß
+        run: |
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          set "PATH=C:\Qt\6.12.0\msvc2022_64\bin;%PATH%"
+          cd build
+          ctest --output-on-failure --timeout 3600
+
+      - name: Release build and package
+        shell: cmd
+        run: |
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cmake -S . -B build-release -G Ninja -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/msvc2022_64 -DTP_TEST_SWITCHES=OFF || exit /b 1
+          cmake --build build-release || exit /b 1
+          "C:\Program Files\Git\bin\bash.exe" -c "tests/check-exports-windows.sh build-release && packaging/make-addon-windows.sh build-release dist && sha256sum dist/*.qbpkg | tee dist/SHA256SUMS-windows.txt" || exit /b 1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: translation-proofreading-windows
+          path: |
+            dist/
+            screenshots/
+            deps-build.log
+          if-no-files-found: ignore
+
+      - name: Test build on the pre-release "test-windows"
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete test-windows --yes --cleanup-tag 2>/dev/null || true
+          gh release create test-windows --prerelease --target "${{ github.sha }}" \
+            --title "Test build for Windows (not a release)" \
+            --notes "Built from the branch ${{ github.ref_name }}, commit ${{ github.sha }}, for Quillbinder for Windows 0.91.1 or later. For trying out: install with Quillbinder's File > Install Update or Add-on, then restart Quillbinder. Replaced by every new test build." \
+            dist/*.qbpkg dist/SHA256SUMS-windows.txt
+
+      - name: Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(python -c "import json; print(json.load(open('packaging/manifest.json'))['version'])")
+          if gh release view "v$V-windows" >/dev/null 2>&1; then
+            echo "v$V-windows is published already (raise the version for a new release)"
+            exit 0
+          fi
+          python - "$V" > notes.md <<'PY'
+          import json, sys
+          m = json.load(open("packaging/manifest.json"))
+          print("For Quillbinder for Windows (0.91.1 or later): install with **File > Install Update or Add-on**, then "
+                "restart Quillbinder. The models are chosen and downloaded in **File > Options > Proofreading**.\n")
+          print("What is new:\n")
+          for line in m["whatsNew"]:
+              print(f"- {line}")
+          PY
+          gh release create "v$V-windows" --latest=false --title "Translation and Proofreading $V for Windows" --notes-file notes.md \
+            dist/*.qbpkg dist/SHA256SUMS-windows.txt
