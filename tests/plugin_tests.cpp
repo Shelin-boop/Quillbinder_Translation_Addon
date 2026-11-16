@@ -16,7 +16,11 @@ class PluginTests : public QObject
 private slots:
     void loads()
     {
+#ifdef Q_OS_WIN
+        const QString file = QStringLiteral(TP_BUILD_DIR "/addon/plugins/qb-translation-proofreading.dll");
+#else
         const QString file = QStringLiteral(TP_BUILD_DIR "/addon/plugins/libqb-translation-proofreading.so");
+#endif
         QPluginLoader loader(file);
         QCOMPARE(loader.metaData().value(QStringLiteral("IID")).toString(), QStringLiteral(QB_TOOL_IID));
         QObject *o = loader.instance();

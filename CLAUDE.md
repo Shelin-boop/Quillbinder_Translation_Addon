@@ -1,6 +1,6 @@
 # Translation and Proofreading (a Quillbinder add-on): notes for Claude Code
 
-A writing-tool add-on for Quillbinder (Linux), built **without access to Quillbinder's private repository or project
+A writing-tool add-on for Quillbinder (Linux, and since 2026-11-16 Windows), built **without access to Quillbinder's private repository or project
 documents**: everything comes from the public source (https://github.com/Shelin-boop/Quillbinder_Public) and this
 repository. Keep it that way; that was the point of the experiment (2026-11-15).
 
@@ -50,6 +50,30 @@ loads in a newer one), but releases come only from the workflow "Build" (Qt 6.12
 - The official add-on (signed with the Quillbinder project's add-on key) is built by the workflow "Official add-on" of
   Quillbinder_Public from the commit named in its `official-addons/translation-proofreading.json`; a new version needs
   a new commit there.
+
+## Windows (2026-11-16, 1.1 for Windows)
+
+- From the public source: Quillbinder for Windows takes add-ons with `"platform": "windows-x64"` (file name
+  `<id>-windows.qbpkg`), DLLs without "lib", and brings Qt's TLS plugin itself (Schannel); minApp 0.91.1 (the first
+  public Windows version; 0.91.3 knows the add-on key). `packaging/make-addon-windows.sh` writes such a package.
+- Every Windows change sits in `#ifdef Q_OS_WIN` / `if(WIN32)`, so the Linux build stays as it was (the Linux 1.1
+  package came from 59537a5). `packaging/build-deps.sh` is the Linux recipe and the key of the Linux caches: leave it.
+- `packaging/build-deps-windows.sh`: MSVC, static libraries with the DLL runtime (/MD). CTranslate2 4.9.0 forces /MT for
+  a static build (one line changed by the script), CMake 4 needs `CMAKE_POLICY_VERSION_MINIMUM=3.5` (cpu_features),
+  and CMake on Windows starts the cache with Debug: always `-DCMAKE_BUILD_TYPE=Release`.
+- The engine is `qb-tp-engine.dll` with MSVC's OpenMP (`vcomp140.dll`) beside it, loaded with
+  `LOAD_WITH_ALTERED_SEARCH_PATH`. The memory guard reads `GlobalMemoryStatusEx`. Windows gives a new thread no
+  priority of the one that starts it: only the tool's own thread runs below normal there.
+- Paths with letters outside ASCII (C:\Users\Jürgen): CTranslate2 4.9 opens UTF-8 paths itself; SentencePiece takes the
+  system's code page, so on Windows the engine hands it the file's bytes (`LoadFromSerializedProto`). The checks run
+  with TEMP in "Prüfung Jürgen ß", and set paths in environment variables with `_wputenv_s` (qputenv's bytes are
+  taken in the code page there).
+- `.gitattributes` keeps LF on Windows: the word lists and the catalog are read line by line. `TP_VERSION` is also a type
+  of winnt.h: `windows.h` is included with the macro pushed away. Windows deletes no open file (close before removing).
+  The check programs' output did not reach CTest on Windows: they write `build/test-*.txt`, which the workflow prints.
+- The Windows job of "Build" puts the package on the pre-release `test-windows`; on main it publishes `v<version>-windows`
+  once (never Latest). The official Windows add-on is built by Quillbinder_Public's workflow "Official add-on for
+  Windows" from the `windows` block of the entry.
 
 ## Things learned (2026-11-15, 1.1)
 

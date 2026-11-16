@@ -1,0 +1,4 @@
+# The files as they are in the repository on every system (2026-11-16): a Windows checkout turned LF into CRLF, and the
+# add-on reads its word lists and its catalog line by line (the checks failed on Windows; the package would have carried
+# the CRLF lists). Binary files stay untouched.
+* text=auto eol=lf

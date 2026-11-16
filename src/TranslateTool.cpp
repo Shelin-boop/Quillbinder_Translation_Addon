@@ -5,16 +5,25 @@
 
 #include <QCloseEvent>
 #include <QCoreApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QMenu>
 #include <QThread>
 #include <QVBoxLayout>
 #include <QWidget>
 
+#ifdef Q_OS_WIN
+// (the add-on's TP_VERSION, a definition of the build, is also the name of a type in Windows' winnt.h)
+#pragma push_macro("TP_VERSION")
+#undef TP_VERSION
+#include <windows.h>
+#pragma pop_macro("TP_VERSION")
+#else
 #include <dlfcn.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#endif
 
 using namespace qb::tools;
 
@@ -290,8 +299,15 @@ QString TranslateTool::loadProblem(const QString &slot, const QString &modelId)
 
 void TranslateTool::lowerPriority()
 {
+#ifdef Q_OS_WIN
+    // Windows (2026-11-16): the thread below normal; the threads the engine and OpenMP start begin at normal priority
+    // (Windows gives a new thread no priority of the one that starts it), so on Windows only one core left free keeps
+    // the program responsive
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#else
     // Linux: a thread is a task of its own; the threads it starts (the engine's and OpenMP's) take its priority
     setpriority(PRIO_PROCESS, id_t(syscall(SYS_gettid)), 10);
+#endif
 }
 
 QString TranslateTool::chosenModel(const QString &kind) const
@@ -319,6 +335,18 @@ EngineInterface *TranslateTool::engine(QString *error)
     if (!m_engineError.isEmpty())
         return fail(m_engineError);
     const QString dir = addonDir();
+#ifdef Q_OS_WIN
+    // Windows (2026-11-16): qb-tp-engine.dll with MSVC's OpenMP (vcomp140.dll) beside it; the altered search path
+    // finds the DLLs an engine needs in its own folder first
+    const QString lib = dir + QStringLiteral("/qb-tp-engine.dll");
+    if (dir.isEmpty() || !QFileInfo::exists(lib))
+        return fail(tr("The add-on's engine is missing (install the add-on again)."));
+    HMODULE h = LoadLibraryExW(reinterpret_cast<const wchar_t *>(QDir::toNativeSeparators(lib).utf16()), nullptr,
+                               LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (!h)
+        return fail(tr("Cannot load the engine: %1").arg(QStringLiteral("Windows error %1").arg(GetLastError())));
+    auto create = reinterpret_cast<TpEngineCreateFn>(reinterpret_cast<void *>(GetProcAddress(h, "qb_tp_engine_create")));
+#else
     const QString lib = dir + QStringLiteral("/libqb-tp-engine.so");
     if (dir.isEmpty() || !QFileInfo::exists(lib))
         return fail(tr("The add-on's engine is missing (install the add-on again)."));
@@ -326,6 +354,7 @@ EngineInterface *TranslateTool::engine(QString *error)
     if (!h)
         return fail(tr("Cannot load the engine: %1").arg(QString::fromLocal8Bit(dlerror())));
     auto create = reinterpret_cast<TpEngineCreateFn>(dlsym(h, "qb_tp_engine_create"));
+#endif
     if (!create)
         return fail(tr("The engine is damaged (no entry point)."));
     m_engine = create();

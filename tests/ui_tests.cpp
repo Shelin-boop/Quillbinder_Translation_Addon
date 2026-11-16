@@ -29,6 +29,23 @@
 #include <QJsonObject>
 #include <QThread>
 #include <QtTest>
+#include <QScopeGuard>
+#ifdef Q_OS_WIN
+#include <stdlib.h>
+#endif
+
+// A path for an environment variable the add-on reads (2026-11-16): Windows takes the bytes of qputenv in the system's
+// code page, not as UTF-8, so a folder such as "Prüfung Jürgen ß" became one that does not exist; there the variable
+// is set as UTF-16.
+static void putPath(const char *name, const QString &path)
+{
+#ifdef Q_OS_WIN
+    _wputenv_s(reinterpret_cast<const wchar_t *>(QString::fromLatin1(name).utf16()),
+               reinterpret_cast<const wchar_t *>(path.utf16()));
+#else
+    qputenv(name, path.toUtf8());
+#endif
+}
 
 using namespace tp;
 
@@ -102,7 +119,7 @@ private slots:
     {
         m_models = qEnvironmentVariable("TP_MODELS_DIR");
         qputenv("QB_TP_DIR", QByteArray(TP_BUILD_DIR "/addon/translation-proofreading"));
-        qputenv("QB_TP_MODEL_SOURCE", m_models.toUtf8());
+        putPath("QB_TP_MODEL_SOURCE", m_models);
         qputenv("QB_TP_ACCEPT_LICENSES", "1");
         m_host = new FakeHost(QStringLiteral(TP_BUILD_DIR "/addon/translation-proofreading"), m_data.path());
         // live work only in its own check (it would start runs in the middle of the others)
@@ -154,7 +171,12 @@ private slots:
         QTemporaryDir bad;
         for (const QString &f : QDir(m_models).entryList(QDir::Files))
             if (f.startsWith(QLatin1String("opus-mt-de-en--")))
+#ifdef Q_OS_WIN
+                // (Windows: QFile::link makes a shortcut file, whose own bytes would be downloaded)
+                QVERIFY(QFile::copy(m_models + QLatin1Char('/') + f, bad.path() + QLatin1Char('/') + f));
+#else
                 QVERIFY(QFile::link(m_models + QLatin1Char('/') + f, bad.path() + QLatin1Char('/') + f));
+#endif
         QFile::remove(bad.path() + QStringLiteral("/opus-mt-de-en--config.json"));
         QFile cfg(bad.path() + QStringLiteral("/opus-mt-de-en--config.json"));
         QVERIFY(cfg.open(QIODevice::WriteOnly));
@@ -164,14 +186,16 @@ private slots:
         data[10] = data[10] == 'x' ? 'y' : 'x';
         cfg.write(data);
         cfg.close();
-        qputenv("QB_TP_MODEL_SOURCE", bad.path().toUtf8());
+        putPath("QB_TP_MODEL_SOURCE", bad.path());
+        // (back to the real source even when a check below fails: else every later check downloads from a folder that
+        // is gone)
+        const auto back = qScopeGuard([this] { putPath("QB_TP_MODEL_SOURCE", m_models); });
         QSignalSpy finished(m_tool->store(), &ModelStore::finished);
         m_tool->store()->download(QStringLiteral("opus-mt-de-en"));
         QVERIFY(finished.wait(120000));
         QCOMPARE(finished.last().at(1).toBool(), false);
         QVERIFY2(finished.last().at(2).toString().contains(QStringLiteral("checksum")), qPrintable(finished.last().at(2).toString()));
         QVERIFY(!m_tool->store()->isInstalled(QStringLiteral("opus-mt-de-en")));
-        qputenv("QB_TP_MODEL_SOURCE", m_models.toUtf8());
     }
 
     void optionsAndDownload()
@@ -486,9 +510,13 @@ private slots:
         QVERIFY(cat.open(QIODevice::WriteOnly));
         cat.write(QJsonDocument(QJsonObject{{QStringLiteral("format"), 2}, {QStringLiteral("models"), QJsonArray{model}}}).toJson());
         cat.close();
-        qputenv("TP_TEST_CATALOG", cat.fileName().toUtf8());
-        const QByteArray oldSource = qgetenv("QB_TP_MODEL_SOURCE");
-        qputenv("QB_TP_MODEL_SOURCE", src.path().toUtf8());
+        putPath("TP_TEST_CATALOG", cat.fileName());
+        const QString oldSource = qEnvironmentVariable("QB_TP_MODEL_SOURCE");
+        putPath("QB_TP_MODEL_SOURCE", src.path());
+        const auto back = qScopeGuard([&oldSource] {
+            qunsetenv("TP_TEST_CATALOG");
+            putPath("QB_TP_MODEL_SOURCE", oldSource);
+        });
         ModelStore store;
         store.setDataDir(data.path());
         QSignalSpy finished(&store, &ModelStore::finished);
@@ -499,9 +527,10 @@ private slots:
         QFile joined(data.path() + QStringLiteral("/models/split/model.bin"));
         QVERIFY(joined.open(QIODevice::ReadOnly));
         QCOMPARE(joined.readAll(), whole);
+        joined.close();   // (Windows deletes no open file: store.remove below failed there, and the next download found it)
         QVERIFY(!QFileInfo::exists(data.path() + QStringLiteral("/models/split/model.bin.part1")));
         // a wrong part: refused, nothing installed
-        store.remove(QStringLiteral("split"));
+        QVERIFY(store.remove(QStringLiteral("split")));
         QFile bad(src.path() + QStringLiteral("/split--model.bin.part2"));
         QVERIFY(bad.open(QIODevice::WriteOnly));
         bad.write(QByteArray(parts.at(1).size(), 'x'));
@@ -511,8 +540,6 @@ private slots:
         QCOMPARE(finished.last().at(1).toBool(), false);
         QVERIFY(finished.last().at(2).toString().contains(QStringLiteral("checksum")));
         QVERIFY(!store.isInstalled(QStringLiteral("split")));
-        qunsetenv("TP_TEST_CATALOG");
-        qputenv("QB_TP_MODEL_SOURCE", oldSource);
     }
 
     void dialogueKept()

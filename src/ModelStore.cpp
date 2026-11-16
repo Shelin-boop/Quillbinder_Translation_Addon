@@ -2,6 +2,13 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#ifdef Q_OS_WIN
+// (the add-on's TP_VERSION, a definition of the build, is also the name of a type in Windows' winnt.h)
+#pragma push_macro("TP_VERSION")
+#undef TP_VERSION
+#include <windows.h>
+#pragma pop_macro("TP_VERSION")
+#endif
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -45,6 +52,16 @@ Machine Machine::now()
         m.availableMB = fake.section(QLatin1Char(','), 1, 1).toLongLong();
         return m;
     }
+#endif
+#ifdef Q_OS_WIN
+    // Windows (2026-11-16): the physical memory and what is available of it, as the guard uses /proc/meminfo on Linux
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof(ms);
+    if (GlobalMemoryStatusEx(&ms)) {
+        m.totalMB = qint64(ms.ullTotalPhys / (1024 * 1024));
+        m.availableMB = qint64(ms.ullAvailPhys / (1024 * 1024));
+    }
+    return m;
 #endif
     QFile f(QStringLiteral("/proc/meminfo"));
     if (f.open(QIODevice::ReadOnly)) {
