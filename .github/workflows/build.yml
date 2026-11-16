@@ -281,7 +281,7 @@ jobs:
         shell: cmd
         run: |
           call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
-          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/msvc2022_64 -DTP_TEST_SWITCHES=ON || exit /b 1
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/msvc2022_64 -DTP_TEST_SWITCHES=ON || exit /b 1
           cmake --build build || exit /b 1
 
       # the checks' data in a folder named with letters outside ASCII (QTemporaryDir takes TEMP), so the model paths are
@@ -307,7 +307,7 @@ jobs:
         shell: cmd
         run: |
           call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
-          cmake -S . -B build-release -G Ninja -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/msvc2022_64 -DTP_TEST_SWITCHES=OFF || exit /b 1
+          cmake -S . -B build-release -G Ninja -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/msvc2022_64 -DTP_TEST_SWITCHES=OFF || exit /b 1
           cmake --build build-release || exit /b 1
           "C:\Program Files\Git\bin\bash.exe" -c "tests/check-exports-windows.sh build-release && packaging/make-addon-windows.sh build-release dist && sha256sum dist/*.qbpkg | tee dist/SHA256SUMS-windows.txt" || exit /b 1
 

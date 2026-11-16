@@ -17,6 +17,13 @@ fetch() { # <dir> <url> <tag>
 fetch oneDNN https://github.com/uxlfoundation/oneDNN.git v3.9.1
 fetch CTranslate2 https://github.com/OpenNMT/CTranslate2.git v4.9.0
 fetch sentencepiece https://github.com/google/sentencepiece.git v0.2.1
+# CTranslate2 4.9.0 sets Microsoft's static C++ runtime (/MT) for itself whenever it is built as a static library; the
+# engine links it with Qt, which uses the DLL runtime (/MD), and the linker refuses the mix (LNK2038, second run of
+# 2026-11-16). The one line is changed to the DLL runtime before it is configured (it is the same line on every run).
+sed -i 's/set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded\$<\$<CONFIG:Debug>:Debug>")/set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")/' \
+    "$D/CTranslate2/CMakeLists.txt"
+grep -q 'MultiThreaded\$<\$<CONFIG:Debug>:Debug>DLL")' "$D/CTranslate2/CMakeLists.txt" \
+    || { echo "CTranslate2's runtime line was not found (another version?)" >&2; exit 1; }
 W() { cygpath -m "$1"; }
 common=(-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe
         -DCMAKE_INSTALL_PREFIX="$(W "$P")" -DCMAKE_PREFIX_PATH="$(W "$P")" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
