@@ -527,9 +527,10 @@ private slots:
         QFile joined(data.path() + QStringLiteral("/models/split/model.bin"));
         QVERIFY(joined.open(QIODevice::ReadOnly));
         QCOMPARE(joined.readAll(), whole);
+        joined.close();   // (Windows deletes no open file: store.remove below failed there, and the next download found it)
         QVERIFY(!QFileInfo::exists(data.path() + QStringLiteral("/models/split/model.bin.part1")));
         // a wrong part: refused, nothing installed
-        store.remove(QStringLiteral("split"));
+        QVERIFY(store.remove(QStringLiteral("split")));
         QFile bad(src.path() + QStringLiteral("/split--model.bin.part2"));
         QVERIFY(bad.open(QIODevice::WriteOnly));
         bad.write(QByteArray(parts.at(1).size(), 'x'));
