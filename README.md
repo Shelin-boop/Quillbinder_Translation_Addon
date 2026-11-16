@@ -1,6 +1,7 @@
 # Translation and Proofreading (a Quillbinder add-on)
 
-An add-on for [Quillbinder](https://github.com/Shelin-boop/Quillbinder_Public) (Linux, version 0.80.0 or later) that
+An add-on for [Quillbinder](https://github.com/Shelin-boop/Quillbinder_Public) (Linux, version 0.80.0 or later, and
+since 2026-11-16 Windows 11, Quillbinder for Windows 0.91.1 or later) that
 checks English text for spelling and grammar and translates German text into English, on your own computer. Once a
 model is downloaded, it works without any internet connection.
 
@@ -34,10 +35,11 @@ model is downloaded, it works without any internet connection.
 
 ## Installing
 
-1. Download `translation-proofreading-<version>.qbpkg`: the official add-on, built and signed by the Quillbinder
-   project, from its release in [Quillbinder_Public](https://github.com/Shelin-boop/Quillbinder_Public/releases)
-   ("Translation and Proofreading ... (official add-on)"); or a test build from the pre-release **test** of this
-   repository.
+1. Download `translation-proofreading-<version>.qbpkg` (Linux) or `translation-proofreading-<version>-windows.qbpkg`
+   (Windows): the official add-on, built and signed by the Quillbinder project, from its release in
+   [Quillbinder_Public](https://github.com/Shelin-boop/Quillbinder_Public/releases) ("Translation and Proofreading ...
+   (official add-on)", for Windows "... for Windows (official add-on)"); or a test build from the pre-release **test**
+   (Linux) or **test-windows** (Windows) of this repository.
 2. In Quillbinder (0.91.3 or later): **File > Install Update or Add-on**, choose the file. The official add-on is shown
    as signed with the project's add-on key; a test build is not signed, and Quillbinder warns before installing it.
    Restart Quillbinder.
@@ -89,8 +91,17 @@ Everything the add-on needs from Quillbinder is its public tool interface, `thir
     cmake -S . -B build-release -G Ninja -DCMAKE_PREFIX_PATH=/opt/qt/6.12.0/gcc_64
     cmake --build build-release && packaging/make-addon.sh build-release dist
 
-A release is built against The Qt Company's Qt 6.12.0, the Qt inside Quillbinder's AppImage since 0.80.0 (the
-workflow "Build" installs it with aqtinstall). The parts:
+On Windows 11 (since 2026-11-16), in Git Bash inside MSVC's environment (`vcvars64.bat`), with The Qt Company's Qt
+6.12.0 for MSVC 2022:
+
+    packaging/build-deps-windows.sh   # the same three libraries with MSVC (about 22 minutes on GitHub's machine)
+    cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/msvc2022_64 -DTP_TEST_SWITCHES=ON
+    cmake --build build && ctest --test-dir build      # (PATH with Qt's bin folder; the results go to build/test-*.txt)
+    packaging/make-addon-windows.sh build-release dist  # after a release build: the -windows.qbpkg
+
+A release is built against The Qt Company's Qt 6.12.0, the Qt inside Quillbinder's AppImage since 0.80.0 and inside
+Quillbinder for Windows (the workflow "Build" installs it with aqtinstall). The parts:
 
 - `src/TranslateTool.*`: the writing tool (commands, inspector tab, toolbar button, options section).
 - `src/Panel.*`: the panel in both layouts; `src/OptionsPage.*`: the options; `src/ModelStore.*`: catalog and download.
