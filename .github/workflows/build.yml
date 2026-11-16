@@ -261,7 +261,7 @@ jobs:
           key: models-${{ hashFiles('resources/catalog.json') }}-windows
 
       - name: Models for the checks (download)
-        if: steps.models.outputs.cache-hit != 'true'
+        if: ${{ !cancelled() && steps.models.outputs.cache-hit != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -271,13 +271,17 @@ jobs:
           ls -la models-cache
 
       - name: Models for the checks (keep)
-        if: steps.models.outputs.cache-hit != 'true'
+        if: ${{ !cancelled() && steps.models.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: models-cache
           key: ${{ steps.models.outputs.cache-primary-key }}
 
+      # (also when the engine libraries failed: the add-on's own code is compiled all the same, so its faults show in the
+      # same run)
       - name: Build with the checks
+        id: build
+        if: ${{ !cancelled() }}
         shell: cmd
         run: |
           call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
@@ -287,9 +291,14 @@ jobs:
       # the checks' data in a folder named with letters outside ASCII (QTemporaryDir takes TEMP), so the model paths are
       # too; dumpbin (the exports check) needs MSVC's environment
       - name: A temporary folder named with letters outside ASCII
+        if: ${{ !cancelled() }}
         run: mkdir -p "$RUNNER_TEMP/Prüfung Jürgen ß"
 
+      # (since the fourth run: every later step runs even when one fails, and the checks print their whole output, so
+      # that one run shows every fault)
       - name: Checks
+        id: checks
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: cmd
         env:
           QT_QPA_PLATFORM: offscreen
@@ -302,8 +311,12 @@ jobs:
           set "PATH=C:\Qt\6.12.0\msvc2022_64\bin;%PATH%"
           cd build
           ctest --output-on-failure --timeout 3600
+          set rc=%ERRORLEVEL%
+          if not "%rc%"=="0" type Testing\Temporary\LastTest.log
+          exit /b %rc%
 
       - name: Release build and package
+        if: ${{ !cancelled() && (success() || steps.checks.outcome == 'failure') }}
         shell: cmd
         run: |
           call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
@@ -322,7 +335,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Test build on the pre-release "test-windows"
-        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        if: success() && github.event_name == 'push' && github.ref != 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
