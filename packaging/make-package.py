@@ -21,6 +21,10 @@ import zipfile
 # in the CMakeLists.txt of the public source)
 RUNTIME = "u2404-qt6.12-r1"
 RUNTIME_SINCE = "0.80.0"
+# Quillbinder for Android (2026-11-16, not published yet): The Qt Company's Qt 6.12.0 for Android in the APK; add-ons
+# since 0.91.3
+ANDROID_RUNTIME = "android-qt6.12-r1"
+ANDROID_RUNTIME_SINCE = "0.91.3"
 
 
 def version_key(v):
@@ -46,9 +50,13 @@ def main():
             payload.append((rel, data))
     manifest["files"] = files
     if any(f["path"].endswith(".so") or ".so." in f["path"] for f in files):
-        manifest["runtime"] = RUNTIME
-        if version_key(manifest.get("minApp", "0")) < version_key(RUNTIME_SINCE):
-            manifest["minApp"] = RUNTIME_SINCE
+        runtime, since = RUNTIME, RUNTIME_SINCE
+        if manifest.get("platform", "").startswith("android"):
+            # Android (2026-11-16): Quillbinder for Android's runtime (Qt 6.12.0 for Android, the NDK's C++ library)
+            runtime, since = ANDROID_RUNTIME, ANDROID_RUNTIME_SINCE
+        manifest["runtime"] = runtime
+        if version_key(manifest.get("minApp", "0")) < version_key(since):
+            manifest["minApp"] = since
     if os.path.exists(out):
         os.remove(out)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
