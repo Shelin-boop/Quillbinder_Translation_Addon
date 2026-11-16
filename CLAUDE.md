@@ -75,6 +75,26 @@ loads in a newer one), but releases come only from the workflow "Build" (Qt 6.12
   once (never Latest). The official Windows add-on is built by Quillbinder_Public's workflow "Official add-on for
   Windows" from the `windows` block of the entry.
 
+## Android (2026-11-16, branch `addon/android`, not merged)
+
+- From Quillbinder's Android build (private trial builds, 0.91.3): add-ons with `"platform": "android-arm64"` (tablets)
+  or `"android-x86_64"` (emulated tablets), runtime `android-qt6.12-r1`, minApp 0.91.3; Quillbinder for Android keeps
+  them in the app's private folder (Android runs no library from the shared storage) and refuses another system's or
+  processor's package with its reason. `packaging/make-addon-android.sh <build> <out> <abi> <ndk>` writes the package.
+- Every Android change sits in `if(ANDROID)` / `#ifdef Q_OS_ANDROID`; the Linux and Windows builds stay as they were.
+- `packaging/build-deps-android.sh`: CTranslate2 4.9.0 with Ruy (oneDNN is for x86 only), SentencePiece 0.2.1, with the
+  NDK (r27c, API 28), 16 KB pages. The engine links LLVM's OpenMP statically (`-static-openmp`; CMake's OpenMP target
+  named `libomp.so`, which Android does not have: its link libraries are cleared). Android's toolchain looks only in
+  the NDK's system folder: `CMAKE_FIND_ROOT_PATH_MODE_INCLUDE/LIBRARY BOTH`. The plugin keeps a plain `.so` name
+  (`SUFFIX ".so"`) and may need Qt's graphics libraries (libGLESv2.so is the system's).
+- The Android job of "Build" builds both ABIs, checks the exports, the libraries each needs and the 16 KB pages, and puts
+  `translation-proofreading-<version>-android-<abi>.qbpkg` and `SHA256SUMS-android.txt` on the pre-release
+  `test-android`; on `main` it publishes nothing yet (no release for Android before Quillbinder for Android is public).
+- Seen working (2026-11-16, Quillbinder's system test on an emulated tablet, Android 14, x86_64): installed, loaded at
+  the next start, its Options section, a model taken from a folder, "Das Haus ist alt und das Wetter ist schön."
+  translated to "The house is old and the weather is nice." in 41 s (the first run, loading included). Not tried: a
+  real tablet (arm64), the speed there, the proofreading models.
+
 ## Things learned (2026-11-15, 1.1)
 
 - Chat models (Qwen3): CTranslate2's `Generator`, the prompt in ChatML (`<|im_start|>system ...`), the system message as
