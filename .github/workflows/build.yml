@@ -312,6 +312,10 @@ jobs:
           cd build
           ctest --output-on-failure --timeout 3600
           set rc=%ERRORLEVEL%
+          for %%f in (test-*.txt) do (
+            echo ===== %%f
+            type "%%f"
+          )
           if not "%rc%"=="0" type Testing\Temporary\LastTest.log
           exit /b %rc%
 
