@@ -6,7 +6,7 @@ B=$1
 fail=0
 check() { # <library> <allowed pattern>
     local extra
-    extra=$(nm -D --defined-only "$1" | awk '{print $3}' | grep -v -E "$2" || true)
+    extra=$("${NM:-nm}" -D --defined-only "$1" | awk '{print $3}' | grep -v -E "$2" || true)
     if [ -n "$extra" ]; then
         echo "FAIL: $(basename "$1") shows: $(echo "$extra" | head -5 | tr '\n' ' ')"
         fail=1

@@ -50,6 +50,12 @@ if(WIN32)
 else()
 target_link_options(qb-translation-proofreading PRIVATE "LINKER:-Bsymbolic" "LINKER:-z,noexecstack")
 endif()
+if(ANDROID)
+  # Android (2026-11-16): the plain name (Qt's Android build would add the ABI to it) and pages of 16 KB, which
+  # Android 15 and later devices may use (Quillbinder's APK is built the same way)
+  set_target_properties(qb-translation-proofreading PROPERTIES SUFFIX ".so")
+  target_link_options(qb-translation-proofreading PRIVATE "LINKER:-z,max-page-size=16384")
+endif()
 if(TP_TEST_SWITCHES)
   target_compile_definitions(qb-translation-proofreading PRIVATE TP_TEST_SWITCHES)
 endif()
@@ -57,7 +63,17 @@ endif()
 # ---- the engine: CTranslate2 (with oneDNN) and SentencePiece linked in; needs Qt Core and libgomp only
 find_path(TP_CT2_INCLUDE ctranslate2/translator.h PATHS ${TP_DEPS_DIR}/include NO_DEFAULT_PATH)
 find_path(TP_SPM_INCLUDE sentencepiece_processor.h PATHS ${TP_DEPS_DIR}/include NO_DEFAULT_PATH)
-if(WIN32)
+if(ANDROID)
+# Android (2026-11-16): the static libraries of packaging/build-deps-android.sh for one ABI (-DTP_DEPS_DIR=
+# deps-android/<abi>/install). CTranslate2 computes with Ruy there, which takes oneDNN's place in the link (with
+# cpuinfo and, on x86_64, cpu_features: every file of lib/ct2-deps, in one group)
+find_library(TP_CT2_LIB NAMES libctranslate2.a PATHS ${TP_DEPS_DIR}/lib ${TP_DEPS_DIR}/lib64 NO_DEFAULT_PATH)
+find_library(TP_SPM_LIB NAMES libsentencepiece.a PATHS ${TP_DEPS_DIR}/lib ${TP_DEPS_DIR}/lib64 NO_DEFAULT_PATH)
+file(GLOB TP_CT2_DEPS ${TP_DEPS_DIR}/lib/ct2-deps/*.a)
+if(TP_CT2_DEPS)
+  set(TP_DNNL_LIB "-Wl,--start-group" ${TP_CT2_DEPS} "-Wl,--end-group")
+endif()
+elseif(WIN32)
 # Windows (2026-11-16): the static libraries of packaging/build-deps-windows.sh (MSVC)
 find_library(TP_CT2_LIB NAMES ctranslate2 PATHS ${TP_DEPS_DIR}/lib NO_DEFAULT_PATH)
 find_library(TP_DNNL_LIB NAMES dnnl PATHS ${TP_DEPS_DIR}/lib NO_DEFAULT_PATH)
@@ -92,6 +108,12 @@ if(TP_CT2_INCLUDE AND TP_SPM_INCLUDE AND TP_CT2_LIB AND TP_DNNL_LIB AND TP_SPM_L
   add_custom_command(TARGET qb-tp-engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TP_VCOMP}" ${CMAKE_BINARY_DIR}/addon/translation-proofreading/vcomp140.dll
     VERBATIM)
+  elseif(ANDROID)
+  # Android (2026-11-16): LLVM's OpenMP of the NDK linked in (Android loads libraries an add-on carries only by their
+  # full path, so the engine must not need one beside it); the static libraries' symbols stay inside; 16 KB pages
+  target_link_options(qb-tp-engine PRIVATE "-static-openmp" "LINKER:--exclude-libs,ALL" "LINKER:--as-needed"
+    "LINKER:-z,noexecstack" "LINKER:-Bsymbolic" "LINKER:-z,max-page-size=16384")
+  set_target_properties(qb-tp-engine PROPERTIES SUFFIX ".so")
   else()
   # the static libraries' symbols stay inside (no clash with libraries the program or other add-ons load)
   # noexecstack: oneDNN's profiling stub (assembler) has no stack note, which would ask for an executable stack,
