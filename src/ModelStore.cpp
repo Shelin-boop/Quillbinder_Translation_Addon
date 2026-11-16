@@ -3,7 +3,11 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #ifdef Q_OS_WIN
+// (the add-on's TP_VERSION, a definition of the build, is also the name of a type in Windows' winnt.h)
+#pragma push_macro("TP_VERSION")
+#undef TP_VERSION
 #include <windows.h>
+#pragma pop_macro("TP_VERSION")
 #endif
 #include <QDir>
 #include <QFileInfo>
