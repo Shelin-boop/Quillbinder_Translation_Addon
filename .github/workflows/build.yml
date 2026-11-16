@@ -462,9 +462,10 @@ jobs:
             NM="$BIN/llvm-nm" tests/check-exports.sh "$B" || fail=1
             for lib in "$B/addon/plugins/libqb-translation-proofreading.so" "$B/addon/translation-proofreading/libqb-tp-engine.so"; do
               name=$(basename "$lib")
-              # what Android must find for it: only the system's, the C++ library and Qt's, all loaded by the app
+              # what Android must find for it: only the system's (Qt's graphics among them), the C++ library and Qt's,
+              # all loaded by the app
               needed=$("$BIN/llvm-readelf" -d "$lib" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | tr '\n' ' ')
-              other=$(echo "$needed" | tr ' ' '\n' | grep -v -E '^(libc|libm|libdl|liblog|libc\+\+_shared)\.so$|^libQt6[A-Za-z]+_'"$abi"'\.so$|^$' || true)
+              other=$(echo "$needed" | tr ' ' '\n' | grep -v -E '^(libc|libm|libdl|liblog|libandroid|libEGL|libGLESv2|libGLESv3|libjnigraphics|libvulkan|libc\+\+_shared)\.so$|^libQt6[A-Za-z]+_'"$abi"'\.so$|^$' || true)
               if [ -n "$other" ]; then echo "FAIL: $abi $name needs $other"; fail=1; else echo "ok: $abi $name needs $needed"; fi
               # 16 KB pages: every LOAD segment aligned to at least 0x4000
               small=""

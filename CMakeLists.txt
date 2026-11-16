@@ -61,6 +61,11 @@ if(TP_TEST_SWITCHES)
 endif()
 
 # ---- the engine: CTranslate2 (with oneDNN) and SentencePiece linked in; needs Qt Core and libgomp only
+if(ANDROID)
+  # Android (2026-11-16): the NDK's toolchain looks only below its own system folder; the engine libraries are outside
+  set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
+  set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
+endif()
 find_path(TP_CT2_INCLUDE ctranslate2/translator.h PATHS ${TP_DEPS_DIR}/include NO_DEFAULT_PATH)
 find_path(TP_SPM_INCLUDE sentencepiece_processor.h PATHS ${TP_DEPS_DIR}/include NO_DEFAULT_PATH)
 if(ANDROID)
