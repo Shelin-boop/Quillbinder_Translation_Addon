@@ -20,7 +20,9 @@ fetch sentencepiece https://github.com/google/sentencepiece.git v0.2.1
 W() { cygpath -m "$1"; }
 common=(-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe
         -DCMAKE_INSTALL_PREFIX="$(W "$P")" -DCMAKE_PREFIX_PATH="$(W "$P")" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
-        -DCMAKE_POLICY_DEFAULT_CMP0091=NEW)
+        -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_POLICY_VERSION_MINIMUM=3.5)
+# (CMAKE_POLICY_VERSION_MINIMUM: the Windows machine has CMake 4, which refuses cpu_features' cmake_minimum_required
+# below 3.5; first run of 2026-11-16)
 command -v sccache > /dev/null && common+=(-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache)
 t0=$(date +%s)
 cmake -S "$(W "$D/oneDNN")" -B "$(W "$D/b-onednn")" "${common[@]}" \
