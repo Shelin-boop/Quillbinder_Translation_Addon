@@ -92,6 +92,12 @@ find_library(TP_CPUF_LIB NAMES libcpu_features.a PATHS ${TP_DEPS_DIR}/lib ${TP_D
 endif()
 find_package(OpenMP REQUIRED COMPONENTS CXX)
 find_package(Threads REQUIRED)
+if(ANDROID)
+  # Android (2026-11-16): CMake's OpenMP target names the NDK's libomp.so; the engine takes the static libomp instead
+  # (-static-openmp below), so the target keeps only the compiler's switch
+  set_property(TARGET OpenMP::OpenMP_CXX PROPERTY INTERFACE_LINK_LIBRARIES "")
+  set_property(TARGET OpenMP::OpenMP_CXX PROPERTY INTERFACE_LINK_OPTIONS "-fopenmp")
+endif()
 if(TP_CT2_INCLUDE AND TP_SPM_INCLUDE AND TP_CT2_LIB AND TP_DNNL_LIB AND TP_SPM_LIB)
   add_library(qb-tp-engine MODULE src/engine/Engine.cpp src/engine/Bpe.cpp src/engine/Bpe.h src/EngineApi.h)
   target_include_directories(qb-tp-engine PRIVATE src src/engine)
